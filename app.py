@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import pytz  # For Indian Standard Time (IST)
+import pytz  # for Indian Standard Time
 
 # --- Page Config ---
 st.set_page_config(page_title="Membership Tracker", layout="wide")
 
-# --- Custom CSS for UI ---
+# --- Custom CSS for dark clean UI ---
 st.markdown("""
 <style>
     .stSelectbox, .stNumberInput, .stTextInput {
@@ -37,17 +37,18 @@ payment_modes = ["Cash", "UPI", "Card", "Net Banking", "Wallet"]
 def load_data():
     try:
         df = pd.read_csv("memberships.csv")
-        # ✅ Ensure all expected columns exist (fixes 'None' issue)
-        for col in [
-            "Date", "Time (IST)", "Client Name", "Phone Number",
+        # Ensure required columns exist and "Time" replaces any old version
+        expected_cols = [
+            "Date", "Time", "Client Name", "Phone Number",
             "Membership Type", "Amount", "Payment Mode", "Notes"
-        ]:
+        ]
+        for col in expected_cols:
             if col not in df.columns:
                 df[col] = ""
-        return df
+        return df[expected_cols]
     except FileNotFoundError:
         return pd.DataFrame(columns=[
-            "Date", "Time (IST)", "Client Name", "Phone Number",
+            "Date", "Time", "Client Name", "Phone Number",
             "Membership Type", "Amount", "Payment Mode", "Notes"
         ])
 
@@ -77,15 +78,15 @@ if st.button("💾 Add Entry"):
     elif not phone_number.strip().isdigit() or len(phone_number.strip()) != 10:
         st.error("⚠️ Please enter a valid 10-digit phone number.")
     else:
-        # ✅ Get current Indian Standard Time
+        # Get current Indian time (IST)
         ist = pytz.timezone("Asia/Kolkata")
         now_ist = datetime.now(ist)
         current_date = now_ist.strftime("%Y-%m-%d")
-        current_time = now_ist.strftime("%I:%M:%S %p")  # 12-hour format with AM/PM
+        current_time = now_ist.strftime("%I:%M:%S %p")  # 12-hour with AM/PM
 
         new_entry = {
             "Date": current_date,
-            "Time (IST)": current_time,
+            "Time": current_time,
             "Client Name": client_name.strip().title(),
             "Phone Number": phone_number.strip(),
             "Membership Type": membership_type,
@@ -102,8 +103,8 @@ if st.button("💾 Add Entry"):
 st.subheader("📊 Membership Summary")
 
 if not df.empty:
-    # ✅ Replace missing/invalid times
-    df["Time (IST)"] = df["Time (IST)"].fillna("").replace("None", "")
+    # Clean up any "None" or missing times
+    df["Time"] = df["Time"].fillna("").replace("None", "")
     st.dataframe(df, use_container_width=True)
 
     total = df["Amount"].sum()
