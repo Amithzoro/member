@@ -5,7 +5,7 @@ from datetime import datetime
 # --- Page Config ---
 st.set_page_config(page_title="Membership Tracker", layout="wide")
 
-# --- Custom CSS for clean dark UI ---
+# --- Custom CSS ---
 st.markdown("""
 <style>
     .stSelectbox, .stNumberInput, .stTextInput {
@@ -29,11 +29,10 @@ st.markdown("""
 
 st.title("💪 Membership & Client Tracker")
 
-# --- Define payment modes ---
+# --- Payment modes ---
 payment_modes = ["Cash", "UPI", "Card", "Net Banking", "Wallet"]
 
 # --- Load or initialize data ---
-@st.cache_data
 def load_data():
     try:
         return pd.read_csv("memberships.csv")
@@ -62,17 +61,20 @@ with col2:
     payment_mode = st.selectbox("Payment Mode", payment_modes)
     notes = st.text_input("Notes (optional)")
 
-# --- Add Button ---
+# --- Add Entry ---
 if st.button("💾 Add Entry"):
     if not client_name.strip():
         st.error("⚠️ Please enter the client name before saving.")
     elif not phone_number.strip().isdigit() or len(phone_number.strip()) != 10:
         st.error("⚠️ Please enter a valid 10-digit phone number.")
     else:
-        now = datetime.now()
+        now = datetime.now()  # Get real current time every time button is pressed
+        current_date = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%I:%M:%S %p")  # 12-hour format with AM/PM
+
         new_entry = {
-            "Date": now.strftime("%Y-%m-%d"),
-            "Time": now.strftime("%H:%M:%S"),
+            "Date": current_date,
+            "Time": current_time,
             "Client Name": client_name.strip().title(),
             "Phone Number": phone_number.strip(),
             "Membership Type": membership_type,
@@ -83,7 +85,7 @@ if st.button("💾 Add Entry"):
 
         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
         df.to_csv("memberships.csv", index=False)
-        st.success(f"✅ Entry added for {client_name.strip().title()} at {now.strftime('%H:%M:%S')}!")
+        st.success(f"✅ Entry added for {client_name.strip().title()} at {current_time}!")
 
 # --- Display and Summary ---
 st.subheader("📊 Membership Summary")
