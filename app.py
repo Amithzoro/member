@@ -8,7 +8,7 @@ st.set_page_config(page_title="Membership Tracker", layout="wide")
 # --- Custom CSS for clean dark UI ---
 st.markdown("""
 <style>
-    .stSelectbox, .stNumberInput, .stTextInput, .stDateInput, .stTimeInput {
+    .stSelectbox, .stNumberInput, .stTextInput {
         background-color: #111827 !important;
         color: white !important;
         border-radius: 8px !important;
@@ -39,20 +39,19 @@ def load_data():
         return pd.read_csv("memberships.csv")
     except FileNotFoundError:
         return pd.DataFrame(columns=[
-            "Date", "Time", "Client Name", "Membership Type",
-            "Amount", "Payment Mode", "Notes"
+            "Date", "Time", "Client Name", "Phone Number",
+            "Membership Type", "Amount", "Payment Mode", "Notes"
         ])
 
 df = load_data()
 
-# --- Membership Entry Form ---
+# --- Entry Form ---
 st.subheader("➕ Add New Member / Payment Entry")
 
 col1, col2 = st.columns(2)
 with col1:
-    date = st.date_input("Date", datetime.now().date())
-    time = st.time_input("Time", datetime.now().time().replace(microsecond=0))
     client_name = st.text_input("Client Name")
+    phone_number = st.text_input("Phone Number (10 digits)")
     membership_type = st.selectbox(
         "Membership Type",
         ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One-Time Session", "Other"]
@@ -67,11 +66,15 @@ with col2:
 if st.button("💾 Add Entry"):
     if not client_name.strip():
         st.error("⚠️ Please enter the client name before saving.")
+    elif not phone_number.strip().isdigit() or len(phone_number.strip()) != 10:
+        st.error("⚠️ Please enter a valid 10-digit phone number.")
     else:
+        now = datetime.now()
         new_entry = {
-            "Date": date.strftime("%Y-%m-%d"),
-            "Time": time.strftime("%H:%M"),
+            "Date": now.strftime("%Y-%m-%d"),
+            "Time": now.strftime("%H:%M:%S"),
             "Client Name": client_name.strip().title(),
+            "Phone Number": phone_number.strip(),
             "Membership Type": membership_type,
             "Amount": amount,
             "Payment Mode": payment_mode,
@@ -80,7 +83,7 @@ if st.button("💾 Add Entry"):
 
         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
         df.to_csv("memberships.csv", index=False)
-        st.success(f"✅ Entry added for {client_name.strip().title()}!")
+        st.success(f"✅ Entry added for {client_name.strip().title()} at {now.strftime('%H:%M:%S')}!")
 
 # --- Display and Summary ---
 st.subheader("📊 Membership Summary")
@@ -91,7 +94,6 @@ if not df.empty:
     total = df["Amount"].sum()
     st.markdown(f"### 💸 Total Income: ₹{total:.2f}")
 
-    # --- Chart: Income by Membership Type ---
     chart_data = df.groupby("Membership Type")["Amount"].sum().sort_values(ascending=False)
     st.bar_chart(chart_data)
 else:
