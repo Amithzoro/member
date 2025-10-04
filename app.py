@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import pytz  # for timezone handling
 
 # --- Page Config ---
 st.set_page_config(page_title="Membership Tracker", layout="wide")
 
-# --- Custom CSS ---
+# --- Custom CSS for UI ---
 st.markdown("""
 <style>
     .stSelectbox, .stNumberInput, .stTextInput {
@@ -38,7 +39,7 @@ def load_data():
         return pd.read_csv("memberships.csv")
     except FileNotFoundError:
         return pd.DataFrame(columns=[
-            "Date", "Time", "Client Name", "Phone Number",
+            "Date", "Time (IST)", "Client Name", "Phone Number",
             "Membership Type", "Amount", "Payment Mode", "Notes"
         ])
 
@@ -68,13 +69,16 @@ if st.button("💾 Add Entry"):
     elif not phone_number.strip().isdigit() or len(phone_number.strip()) != 10:
         st.error("⚠️ Please enter a valid 10-digit phone number.")
     else:
-        now = datetime.now()  # Get real current time every time button is pressed
-        current_date = now.strftime("%Y-%m-%d")
-        current_time = now.strftime("%I:%M:%S %p")  # 12-hour format with AM/PM
+        # Get Indian Standard Time (UTC+5:30)
+        ist = pytz.timezone("Asia/Kolkata")
+        now_ist = datetime.now(ist)
+
+        current_date = now_ist.strftime("%Y-%m-%d")
+        current_time = now_ist.strftime("%I:%M:%S %p")  # 12-hour format with AM/PM
 
         new_entry = {
             "Date": current_date,
-            "Time": current_time,
+            "Time (IST)": current_time,
             "Client Name": client_name.strip().title(),
             "Phone Number": phone_number.strip(),
             "Membership Type": membership_type,
@@ -85,7 +89,7 @@ if st.button("💾 Add Entry"):
 
         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
         df.to_csv("memberships.csv", index=False)
-        st.success(f"✅ Entry added for {client_name.strip().title()} at {current_time}!")
+        st.success(f"✅ Entry added for {client_name.strip().title()} at {current_time} (IST)!")
 
 # --- Display and Summary ---
 st.subheader("📊 Membership Summary")
