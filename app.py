@@ -2,32 +2,37 @@ import streamlit as st
 import pandas as pd
 import pytz
 import bcrypt
+import random
+import string
 from twilio.rest import Client
 from datetime import datetime
-import time
 
 # ==========================
-# 🔧 CONFIGURATION SETTINGS
+# 🔧 BASIC CONFIG
 # ==========================
-TWILIO_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+TWILIO_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 TWILIO_AUTH = "your_twilio_auth_token"
-TWILIO_FROM = "whatsapp:+14155238886"  # Example Twilio sandbox number
-OWNER_PHONE = "+919876543210"  # Your owner number (used for backup login)
+TWILIO_FROM = "whatsapp:+14155238886"  # Twilio sandbox number
+OWNER_PHONE = "+919876543210"  # Your owner number for messages & backup login
 
 ADMIN_USER = "admin"
-ADMIN_PASSWORD = "1234"  # Change this to your desired password
+ADMIN_PASSWORD = "1234"
 
 FILE_PATH = "membership.xlsx"
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 
-# Generate hashed password
+# ==========================
+# 🧂 HASH ADMIN PASSWORD
+# ==========================
 ADMIN_PASSWORD_HASH = bcrypt.hashpw(ADMIN_PASSWORD.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-# Initialize Twilio
+# ==========================
+# 💬 TWILIO CLIENT
+# ==========================
 client = Client(TWILIO_SID, TWILIO_AUTH)
 
 # ==========================
-# 🔒 SESSION INITIALIZATION
+# 🧠 SESSION SETUP
 # ==========================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -35,9 +40,9 @@ if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame(columns=["Name", "Email", "Phone", "Join Date", "Password"])
 
 # ==========================
-# 📁 DATA FUNCTIONS
+# 📁 DATA HANDLERS
 # ==========================
-@st.cache_data(show_spinner="Loading data...")
+@st.cache_data(show_spinner="Loading members...")
 def load_data():
     try:
         df = pd.read_excel(FILE_PATH)
@@ -48,183 +53,181 @@ def load_data():
         return df
     except FileNotFoundError:
         return pd.DataFrame(columns=["Name", "Email", "Phone", "Join Date", "Password"])
-    except Exception as e:
-        st.error(f"Error loading file: {e}")
-        return pd.DataFrame(columns=["Name", "Email", "Phone", "Join Date", "Password"])
 
 def save_data(df):
-    try:
-        df.to_excel(FILE_PATH, index=False)
-        st.session_state.df = df
-        load_data.clear()
-        st.success("💾 Data saved successfully!")
-    except Exception as e:
-        st.error(f"Error saving data: {e}")
+    df.to_excel(FILE_PATH, index=False)
+    st.session_state.df = df
+    load_data.clear()
+    st.toast("✅ Data saved successfully!")
 
 # ==========================
-# 💬 WHATSAPP MESSAGE
-# ==========================
-def send_whatsapp_confirmation(name, phone):
-    """Send WhatsApp welcome message with owner number."""
-    try:
-        message = (
-            f"Hello {name}, welcome to our exclusive membership program! 🎉\n"
-            f"Your registration is complete.\n\n"
-            f"For help, contact the owner at {OWNER_PHONE}."
-        )
-        client.messages.create(
-            body=message,
-            from_=TWILIO_FROM,
-            to=f"whatsapp:{phone}"
-        )
-        st.toast("✅ WhatsApp message sent!")
-    except Exception as e:
-        st.warning(f"⚠️ Failed to send message: {e}")
-
-# ==========================
-# 🔐 AUTHENTICATION
+# 🔐 LOGIN SYSTEM
 # ==========================
 def check_admin_login(username, password):
     if username != ADMIN_USER:
         return False
     return bcrypt.checkpw(password.encode('utf-8'), ADMIN_PASSWORD_HASH.encode('utf-8'))
 
-def login_with_owner_number(owner_input):
-    """Backup login using owner's number."""
-    if owner_input.strip() == OWNER_PHONE:
+def login_with_owner(owner_number):
+    if owner_number.strip() == OWNER_PHONE:
         st.session_state.logged_in = True
         st.session_state.df = load_data()
-        st.success("✅ Logged in using owner number.")
+        st.success("✅ Logged in via owner number.")
         st.rerun()
     else:
-        st.error("❌ Invalid owner number. Access denied.")
+        st.error("❌ Invalid owner number.")
 
-def login_form():
-    """Main login form with backup option."""
-    st.markdown("### 🔒 Admin Login")
+def login_page():
+    st.title("🔐 Admin Login")
+
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log In", use_container_width=True)
-        if submitted:
+        submit = st.form_submit_button("Log In", use_container_width=True)
+        if submit:
             if check_admin_login(username, password):
                 st.session_state.logged_in = True
                 st.session_state.df = load_data()
                 st.success("✅ Login successful!")
                 st.rerun()
             else:
-                st.error("❌ Invalid username or password.")
+                st.error("❌ Invalid username or password")
 
-    st.markdown("Forgot username or password?")
-    if st.button("🔑 Log in using Owner's Number", use_container_width=True):
-        st.session_state.show_backup_login = True
+    st.markdown("---")
+    if st.button("Forgot Username/Password? Log in using Owner’s Number"):
+        st.session_state.show_backup = True
         st.rerun()
 
-    if st.session_state.get("show_backup_login", False):
-        st.markdown("### 📱 Backup Login (Owner Number)")
-        with st.form("backup_login_form"):
-            owner_input = st.text_input("Enter registered owner number")
-            submitted = st.form_submit_button("Login via Owner Number")
-            if submitted:
-                login_with_owner_number(owner_input)
+    if st.session_state.get("show_backup", False):
+        with st.form("owner_login"):
+            owner_input = st.text_input("Enter Owner’s Number")
+            submit = st.form_submit_button("Login")
+            if submit:
+                login_with_owner(owner_input)
 
 def logout():
     st.session_state.logged_in = False
     st.session_state.df = pd.DataFrame(columns=["Name", "Email", "Phone", "Join Date", "Password"])
-    st.session_state.show_backup_login = False
+    st.session_state.show_backup = False
     st.toast("👋 Logged out successfully!")
     st.rerun()
 
 # ==========================
-# 📊 DASHBOARD
+# 💬 WHATSAPP MESSAGE
 # ==========================
-def display_dashboard(df):
-    st.subheader("📊 Membership Dashboard")
-    total_members = len(df)
+def send_whatsapp_message(name, email, password, phone):
+    try:
+        msg = (
+            f"Hello {name}, 👋\n"
+            f"Welcome to our Membership Program!\n"
+            f"📧 Email: {email}\n"
+            f"🔑 Password: {password}\n"
+            f"💬 For support, contact the owner at {OWNER_PHONE}."
+        )
+        client.messages.create(
+            body=msg,
+            from_=TWILIO_FROM,
+            to=f"whatsapp:{phone}"
+        )
+        st.toast("✅ WhatsApp message sent successfully!")
+    except Exception as e:
+        st.warning(f"⚠️ Could not send WhatsApp: {e}")
+
+# ==========================
+# 🧮 DASHBOARD
+# ==========================
+def show_dashboard(df):
+    st.subheader("📊 Dashboard Overview")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Members", total_members)
-    col2.metric("Latest Join Date", df["Join Date"].max() if total_members > 0 else "N/A")
-    col3.metric("Unique Contacts", df["Phone"].nunique())
+    col1.metric("Total Members", len(df))
+    col2.metric("Unique Emails", df["Email"].nunique() if not df.empty else 0)
+    col3.metric("Latest Join", df["Join Date"].max() if not df.empty else "N/A")
     st.divider()
 
 # ==========================
 # ➕ ADD MEMBER
 # ==========================
-def add_member_section():
-    st.subheader("➕ Register New Member")
-    with st.form("add_form"):
+def add_member():
+    st.subheader("➕ Register a New Member")
+
+    with st.form("add_member_form"):
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Name")
-            email = st.text_input("Email")
+            name = st.text_input("Full Name")
+            email = st.text_input("Email Address")
         with col2:
-            phone = st.text_input("Phone (e.g. +919876543210)")
-            password = st.text_input("Password", type="password")
-        submit = st.form_submit_button("Add Member", use_container_width=True)
+            phone = st.text_input("Phone Number (e.g. +919876543210)")
+
+        submit = st.form_submit_button("Add Member")
+
         if submit:
+            if not all([name, email, phone]):
+                st.warning("Please fill all fields.")
+                return
+
             df = st.session_state.df
-            if name and email and phone and password:
-                if df['Email'].str.lower().eq(email.lower()).any():
-                    st.warning("Member with this email already exists.")
-                else:
-                    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                    new_member = {
-                        "Name": name,
-                        "Email": email,
-                        "Phone": phone,
-                        "Join Date": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
-                        "Password": hashed_pw
-                    }
-                    new_df = pd.concat([df, pd.DataFrame([new_member])], ignore_index=True)
-                    save_data(new_df)
-                    send_whatsapp_confirmation(name, phone)
-                    st.rerun()
-            else:
-                st.warning("Please fill all fields!")
+            if df['Email'].str.lower().eq(email.lower()).any():
+                st.warning("Member with this email already exists.")
+                return
+
+            random_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+            hashed_pw = bcrypt.hashpw(random_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+            new_entry = {
+                "Name": name,
+                "Email": email,
+                "Phone": phone,
+                "Join Date": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                "Password": hashed_pw
+            }
+
+            updated_df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
+            save_data(updated_df)
+            send_whatsapp_message(name, email, random_password, phone)
+            st.success(f"✅ Member added successfully!\nGenerated Password: {random_password}")
+            st.rerun()
 
 # ==========================
-# 📝 MANAGE MEMBERS
+# 🧾 MANAGE MEMBERS
 # ==========================
-def manage_members_section():
-    st.subheader("📝 Manage Members")
+def manage_members():
+    st.subheader("🧾 Manage Members")
     df = st.session_state.df.copy()
-    df_editable = df.drop(columns=["Password", "Join Date"], errors="ignore")
-    edited_df = st.data_editor(df_editable, use_container_width=True, num_rows="dynamic")
-    if st.button("Apply Changes", use_container_width=True):
-        for i, row in edited_df.iterrows():
-            if i < len(df):
-                df.loc[i, "Name"] = row["Name"]
-                df.loc[i, "Phone"] = row["Phone"]
+
+    if df.empty:
+        st.info("No members yet.")
+        return
+
+    edited_df = st.data_editor(df.drop(columns=["Password"]), use_container_width=True)
+    if st.button("💾 Save Changes"):
+        df.update(edited_df)
         save_data(df)
         st.rerun()
 
     st.markdown("---")
-    st.markdown("#### 🗑️ Delete Member")
-    if not df.empty:
-        to_delete = st.selectbox("Select member to delete", df["Email"].tolist())
-        if st.button("Delete Member", type="primary", use_container_width=True):
-            df = df[df["Email"] != to_delete]
-            save_data(df)
-            st.success(f"Deleted member: {to_delete}")
-            st.rerun()
-    else:
-        st.info("No members available.")
+    st.subheader("🗑️ Delete Member")
+    delete_email = st.selectbox("Select email to delete", df["Email"].tolist())
+    if st.button("Delete", type="primary"):
+        df = df[df["Email"] != delete_email]
+        save_data(df)
+        st.success(f"Deleted member: {delete_email}")
+        st.rerun()
 
 # ==========================
-# 🚀 APP ENTRY POINT
+# 🚀 MAIN APP
 # ==========================
-st.title("🛡️ Secure Membership Management Portal")
-st.caption("Manage registrations and send WhatsApp updates instantly.")
+st.set_page_config("Membership Portal", page_icon="🛡️")
 
 if not st.session_state.logged_in:
-    login_form()
+    login_page()
 else:
     st.sidebar.success(f"Logged in as {ADMIN_USER}")
     st.sidebar.button("Logout", on_click=logout, use_container_width=True)
+
     df = st.session_state.df
-    display_dashboard(df)
+    show_dashboard(df)
     tab1, tab2 = st.tabs(["Add Member", "Manage Members"])
     with tab1:
-        add_member_section()
+        add_member()
     with tab2:
-        manage_members_section()
+        manage_members()
