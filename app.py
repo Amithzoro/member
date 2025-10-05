@@ -6,11 +6,23 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from twilio.rest import Client
-import bcrypt
 import os
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Gym Membership Tracker", layout="wide")
+# --- Page Config ---
+st.set_page_config(page_title="Membership Tracker", layout="wide")
+
+# --- Load Secrets (required) ---
+required_keys = ["EMAIL_USER", "EMAIL_PASS", "TWILIO_SID", "TWILIO_AUTH", "TWILIO_FROM"]
+missing_keys = [key for key in required_keys if key not in st.secrets]
+if missing_keys:
+    st.error(f"❌ Missing credentials: {', '.join(missing_keys)}. Please set them in .streamlit/secrets.toml.")
+    st.stop()
+
+EMAIL_USER = st.secrets["EMAIL_USER"]
+EMAIL_PASS = st.secrets["EMAIL_PASS"]
+TWILIO_SID = st.secrets["TWILIO_SID"]
+TWILIO_AUTH = st.secrets["TWILIO_AUTH"]
+TWILIO_FROM = st.secrets["TWILIO_FROM"]
 
 # --- Custom CSS ---
 st.markdown("""
@@ -34,242 +46,149 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💪 Gym Membership & Sales Tracker")
-
-# --- Load credentials ---
-EMAIL_USER = st.secrets.get("EMAIL_USER", "")
-EMAIL_PASS = st.secrets.get("EMAIL_PASS", "")
-TWILIO_SID = st.secrets.get("TWILIO_SID", "")
-TWILIO_AUTH = st.secrets.get("TWILIO_AUTH", "")
-TWILIO_FROM = st.secrets.get("TWILIO_FROM", "")
+st.title("💪 Membership & Client Tracker")
 
 # --- Helper Functions ---
-def send_email(to, subject, body):
-    if not EMAIL_USER or not EMAIL_PASS:
-        st.warning("Email credentials not configured. Skipping email notifications.")
-        return
-    msg = MIMEMultipart()
-    msg["From"] = EMAIL_USER
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.send_message(msg)
-
-def send_whatsapp(phone, message):
-    if not TWILIO_SID or not TWILIO_AUTH:
-        st.warning("Twilio credentials not configured. Skipping WhatsApp notifications.")
-        return
-    client = Client(TWILIO_SID, TWILIO_AUTH)
-    if not phone.startswith("+"):
-        phone = "+91" + phone
-    client.messages.create(from_=TWILIO_FROM, body=message, to=f"whatsapp:{phone}")
-
-# --- Excel Data Handling ---
-def load_data():
-    path = "memberships.xlsx"
-    expected_cols = [
-        "Date", "Time", "Client Name", "Phone Number", "Client Email",
-        "Membership Type", "Amount", "Payment Mode", "Notes",
-        "Expiry Date", "Owner Email"
-    ]
+def send_email(receiver_email, subject, body):
     try:
-        df = pd.read_excel(path)
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = ""
-        df = df[expected_cols]
-    except FileNotFoundError:
-        df = pd.DataFrame(columns=expected_cols)
-        df.to_excel(path, index=False)
-    return df
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_USER
+        msg["To"] = receiver_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        st.error(f"❌ Email sending failed: {e}")
+        return False
+
+def send_whatsapp(phone_number, message):
+    try:
+        client = Client(TWILIO_SID, TWILIO_AUTH)
+        client.messages.create(
+            from_=TWILIO_FROM,
+            body=message,
+            to=f"whatsapp:+91{phone_number}"
+        )
+        return True
+    except Exception as e:
+        st.error(f"❌ WhatsApp sending failed: {e}")
+        return False
+
+def load_data():
+    if os.path.exists("memberships.csv"):
+        return pd.read_csv("memberships.csv")
+    else:
+        return pd.DataFrame(columns=[
+            "Date", "Time", "Client Name", "Phone Number", "Email",
+            "Membership Type", "Amount", "Payment Mode", "Notes", "Expiry Date"
+        ])
 
 def save_data(df):
-    df.to_excel("memberships.xlsx", index=False)
+    df.to_csv("memberships.csv", index=False)
 
+def get_expiry_date(membership_type):
+    ist = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(ist)
+    if membership_type == "Monthly":
+        return now + timedelta(days=30)
+    elif membership_type == "Quarterly":
+        return now + timedelta(days=90)
+    elif membership_type == "Half-Yearly":
+        return now + timedelta(days=180)
+    elif membership_type == "Yearly":
+        return now + timedelta(days=365)
+    else:
+        return now + timedelta(days=1)
+
+# --- Owner Login ---
+st.sidebar.header("🔐 Owner / Staff Login")
+owner_email = st.sidebar.text_input("Owner Email", placeholder="owner@example.com")
+owner_pass = st.sidebar.text_input("Password", type="password")
+
+if not owner_email or not owner_pass:
+    st.sidebar.warning("Please log in to continue.")
+    st.stop()
+else:
+    st.sidebar.success(f"Welcome, {owner_email}")
+
+# --- Load existing data ---
 df = load_data()
 
-# --- Owner Password File ---
-PASSWORD_FILE = "owner_password.txt"
-
-def set_owner_password(email, password):
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-    with open(PASSWORD_FILE, "wb") as f:
-        f.write(hashed)
-    with open("owner_email.txt", "w") as f:
-        f.write(email)
-
-def verify_owner_password(password):
-    if not os.path.exists(PASSWORD_FILE):
-        return False
-    with open(PASSWORD_FILE, "rb") as f:
-        hashed = f.read()
-    return bcrypt.checkpw(password.encode(), hashed)
-
-# --- Authentication ---
-if "owner_logged_in" not in st.session_state:
-    st.session_state["owner_logged_in"] = False
-
-if not os.path.exists(PASSWORD_FILE):
-    st.subheader("🧑‍💼 Create Owner Account")
-    email = st.text_input("Owner Email")
-    password = st.text_input("Create Password", type="password")
-    confirm = st.text_input("Confirm Password", type="password")
-    if st.button("Create Account"):
-        if password == confirm and len(password) >= 6:
-            set_owner_password(email, password)
-            st.success("✅ Owner account created! Please log in.")
-            st.stop()
-        else:
-            st.error("❌ Passwords do not match or too short.")
-    st.stop()
-
-if not st.session_state["owner_logged_in"]:
-    st.subheader("🔐 Login")
-    login_email = st.text_input("Email")
-    login_password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if verify_owner_password(login_password):
-            with open("owner_email.txt", "r") as f:
-                saved_email = f.read().strip()
-            if login_email.strip().lower() == saved_email.lower():
-                st.session_state["owner_logged_in"] = True
-                st.session_state["owner_email"] = login_email.strip().lower()
-                st.success(f"✅ Logged in as {login_email}")
-            else:
-                st.error("❌ Email does not match the registered owner.")
-        else:
-            st.error("❌ Incorrect password.")
-    st.stop()
-
-owner_email = st.session_state["owner_email"]
-
-st.sidebar.markdown(f"👋 Logged in as: **{owner_email}**")
-if st.sidebar.button("Logout"):
-    st.session_state.clear()
-    st.experimental_rerun()
-
-# --- Main App ---
-payment_modes = ["Cash", "UPI", "Card", "Net Banking", "Wallet"]
-
+# --- Add New Entry ---
 st.subheader("➕ Add New Member / Payment Entry")
 
 col1, col2 = st.columns(2)
 with col1:
     client_name = st.text_input("Client Name")
     phone_number = st.text_input("Phone Number (10 digits)")
-    client_email = st.text_input("Client Email (optional)")
+    client_email = st.text_input("Client Email (Required)")
     membership_type = st.selectbox(
         "Membership Type",
         ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One-Time Session", "Other"]
     )
+
 with col2:
     amount = st.number_input("Amount (₹)", min_value=0.0, step=0.01)
-    payment_mode = st.selectbox("Payment Mode", payment_modes)
+    payment_mode = st.selectbox("Payment Mode", ["Cash", "UPI", "Card", "Net Banking", "Wallet"])
     notes = st.text_input("Notes (optional)")
 
 if st.button("💾 Add Entry"):
-    if not client_name.strip():
-        st.error("⚠️ Please enter client name.")
+    if not client_name.strip() or not client_email.strip():
+        st.error("⚠️ Client name and email are required.")
     elif not phone_number.strip().isdigit() or len(phone_number.strip()) != 10:
-        st.error("⚠️ Please enter a valid 10-digit phone number.")
+        st.error("⚠️ Invalid 10-digit phone number.")
     else:
         ist = pytz.timezone("Asia/Kolkata")
-        now_ist = datetime.now(ist)
-        current_date = now_ist.strftime("%Y-%m-%d")
-        current_time = now_ist.strftime("%I:%M:%S %p")
-
-        plan_days = {
-            "Monthly": 30,
-            "Quarterly": 90,
-            "Half-Yearly": 180,
-            "Yearly": 365,
-            "One-Time Session": 1,
-            "Other": 0
-        }
-        duration_days = plan_days.get(membership_type, 0)
-        expiry_date = (now_ist + timedelta(days=duration_days)).strftime("%Y-%m-%d") if duration_days > 0 else ""
+        now = datetime.now(ist)
+        current_date = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%I:%M:%S %p")
+        expiry_date = get_expiry_date(membership_type).strftime("%Y-%m-%d")
 
         new_entry = {
             "Date": current_date,
             "Time": current_time,
             "Client Name": client_name.strip().title(),
             "Phone Number": phone_number.strip(),
-            "Client Email": client_email.strip(),
+            "Email": client_email.strip(),
             "Membership Type": membership_type,
             "Amount": amount,
             "Payment Mode": payment_mode,
             "Notes": notes,
-            "Expiry Date": expiry_date,
-            "Owner Email": owner_email
+            "Expiry Date": expiry_date
         }
 
+        # Add to dataframe and auto-save
         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-        save_data(df)
+        save_data(df)  # 🔥 Auto-updates memberships.csv instantly
 
-        try:
-            # Notify owner
-            owner_msg = f"""
-New Membership Added:
+        # Send email + WhatsApp
+        email_body = f"""
+        Hi {client_name.title()},
+        Your {membership_type} membership has been activated.
 
-Client: {client_name.title()}
-Phone: {phone_number}
-Plan: {membership_type}
-Amount: ₹{amount}
-Expiry: {expiry_date}
-Added by: {owner_email}
-"""
-            send_email(owner_email, f"New Member Added: {client_name.title()}", owner_msg)
+        💰 Amount Paid: ₹{amount}
+        📅 Expiry Date: {expiry_date}
 
-            # Notify client
-            client_msg = f"Hi {client_name.title()}, thanks for your payment of ₹{amount:.2f} for your {membership_type} plan! 💪 Expiry: {expiry_date}."
-            send_whatsapp(phone_number, client_msg)
+        Thank you for choosing us!
+        """
+        send_email(client_email, "Membership Confirmation", email_body)
+        send_email(owner_email, f"New Membership Added: {client_name}", email_body)
+        send_whatsapp(phone_number, f"Hi {client_name}, your {membership_type} membership is active till {expiry_date}. Thank you!")
 
-            if client_email:
-                client_email_body = f"""
-Hi {client_name.title()},
+        st.success(f"✅ Entry added for {client_name.title()} and saved automatically!")
 
-Thank you for your payment of ₹{amount:.2f} for your {membership_type} membership.
-
-Payment Mode: {payment_mode}
-Date: {current_date}, Time: {current_time}
-Expiry Date: {expiry_date}
-
-See you soon at the gym! 💪
-"""
-                send_email(client_email, "Membership Confirmation", client_email_body)
-
-            st.success(f"✅ Entry added and notifications sent to {client_name.title()}!")
-
-        except Exception as e:
-            st.warning(f"⚠️ Entry saved, but failed to send notifications: {e}")
-
-# --- Summary ---
+# --- Display and Summary ---
 st.subheader("📊 Membership Summary")
 
 if not df.empty:
-    df["Time"] = df["Time"].fillna("").replace("None", "")
     st.dataframe(df, use_container_width=True)
-
     total = df["Amount"].sum()
     st.markdown(f"### 💸 Total Income: ₹{total:.2f}")
-
     chart_data = df.groupby("Membership Type")["Amount"].sum().sort_values(ascending=False)
     st.bar_chart(chart_data)
 else:
-    st.info("No entries recorded yet.")
-
-# --- Expiry Section ---
-st.subheader("⏰ Expiring Soon (within 3 days)")
-if not df.empty:
-    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
-    df["Expiry Date"] = pd.to_datetime(df["Expiry Date"], errors="coerce")
-    expiring = df[(df["Expiry Date"] - pd.Timestamp(today)).dt.days.between(0, 3, inclusive="both")]
-
-    if not expiring.empty:
-        st.warning("⚠️ Some memberships are expiring soon!")
-        st.dataframe(expiring[["Client Name", "Phone Number", "Client Email", "Membership Type", "Expiry Date"]], use_container_width=True)
-    else:
-        st.info("✅ No memberships expiring soon.")
+    st.info("No entries yet — add one above.")
