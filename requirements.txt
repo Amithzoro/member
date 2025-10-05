@@ -1,21 +1,6 @@
-# Core App
-streamlit>=1.37.0
-pandas>=2.2.2
-openpyxl>=3.1.2
-
-# Date and timezone handling
-pytz>=2024.1
-
-# Email + SMS Notifications
-smtplib-client==0.1.1        # optional lightweight helper (or built-in smtplib)
-twilio>=9.0.0
-
-# Security and hashing
-bcrypt>=4.1.2
-hashlib>=20081119
-
-# Optional UI Improvements
-streamlit-option-menu>=0.3.6
-
-# Deployment and Web Server
-gunicorn>=23.0.0
+streamlit
+pandas
+openpyxl
+pytz
+twilio
+bcrypt
