@@ -1,7 +1,6 @@
 streamlit
 pandas
-bcrypt
-openpyxl
 pytz
+bcrypt
 twilio
-filelock
+openpyxl
