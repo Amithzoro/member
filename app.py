@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from twilio.rest import Client
 
-# --- Page Config ---
-st.set_page_config(page_title="Membership Tracker", layout="wide")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Gym Membership Tracker", layout="wide")
 
 # --- Custom CSS ---
 st.markdown("""
@@ -32,21 +32,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💪 Membership & Client Tracker")
+st.title("💪 Gym Membership & Sales Tracker")
 
-# --- Payment modes ---
-payment_modes = ["Cash", "UPI", "Card", "Net Banking", "Wallet"]
-
-# --- Load credentials from secrets ---
+# --- Load credentials from Streamlit secrets ---
 EMAIL_USER = st.secrets["EMAIL_USER"]
 EMAIL_PASS = st.secrets["EMAIL_PASS"]
-OWNER_EMAIL = st.secrets["OWNER_EMAIL"]
 
 TWILIO_SID = st.secrets["TWILIO_SID"]
 TWILIO_AUTH = st.secrets["TWILIO_AUTH"]
 TWILIO_FROM = st.secrets["TWILIO_FROM"]
 
-# --- Helper: send email ---
+# --- Helper functions ---
 def send_email(to, subject, body):
     msg = MIMEMultipart()
     msg["From"] = EMAIL_USER
@@ -59,10 +55,8 @@ def send_email(to, subject, body):
         server.login(EMAIL_USER, EMAIL_PASS)
         server.send_message(msg)
 
-# --- Helper: send WhatsApp/SMS ---
 def send_whatsapp(phone, message):
     client = Client(TWILIO_SID, TWILIO_AUTH)
-    # Ensure phone number includes country code (e.g., +91)
     if not phone.startswith("+"):
         phone = "+91" + phone
     client.messages.create(
@@ -75,8 +69,9 @@ def send_whatsapp(phone, message):
 def load_data():
     path = "memberships.xlsx"
     expected_cols = [
-        "Date", "Time", "Client Name", "Phone Number",
-        "Membership Type", "Amount", "Payment Mode", "Notes"
+        "Date", "Time", "Client Name", "Phone Number", "Client Email",
+        "Membership Type", "Amount", "Payment Mode", "Notes",
+        "Expiry Date", "Owner Email"
     ]
     try:
         df = pd.read_excel(path)
@@ -94,6 +89,41 @@ def save_data(df):
 
 df = load_data()
 
+# ===============================
+# 🔐 OWNER LOGIN SECTION
+# ===============================
+if "owner_logged_in" not in st.session_state:
+    st.session_state["owner_logged_in"] = False
+
+if not st.session_state["owner_logged_in"]:
+    st.subheader("🔐 Owner Login")
+    login_email = st.text_input("Enter your email")
+    login_password = st.text_input("Enter password", type="password")
+
+    if st.button("Login"):
+        # Simple static password for now (can be stored in secrets or database)
+        if login_email and login_password == "admin123":  # You can change this
+            st.session_state["owner_logged_in"] = True
+            st.session_state["owner_email"] = login_email.strip().lower()
+            st.success(f"✅ Logged in as {login_email}")
+        else:
+            st.error("❌ Invalid email or password. Try again.")
+    st.stop()  # stop app until login succeeds
+
+owner_email = st.session_state["owner_email"]
+
+st.sidebar.markdown(f"👋 Logged in as: **{owner_email}**")
+if st.sidebar.button("Logout"):
+    st.session_state.clear()
+    st.experimental_rerun()
+
+# ===============================
+# 🧾 MAIN APP (AFTER LOGIN)
+# ===============================
+
+# --- Payment modes ---
+payment_modes = ["Cash", "UPI", "Card", "Net Banking", "Wallet"]
+
 # --- Entry Form ---
 st.subheader("➕ Add New Member / Payment Entry")
 
@@ -101,6 +131,7 @@ col1, col2 = st.columns(2)
 with col1:
     client_name = st.text_input("Client Name")
     phone_number = st.text_input("Phone Number (10 digits)")
+    client_email = st.text_input("Client Email (optional)")
     membership_type = st.selectbox(
         "Membership Type",
         ["Monthly", "Quarterly", "Half-Yearly", "Yearly", "One-Time Session", "Other"]
@@ -111,7 +142,7 @@ with col2:
     payment_mode = st.selectbox("Payment Mode", payment_modes)
     notes = st.text_input("Notes (optional)")
 
-# --- Add Entry Button ---
+# --- Add Entry ---
 if st.button("💾 Add Entry"):
     if not client_name.strip():
         st.error("⚠️ Please enter the client name before saving.")
@@ -123,41 +154,75 @@ if st.button("💾 Add Entry"):
         current_date = now_ist.strftime("%Y-%m-%d")
         current_time = now_ist.strftime("%I:%M:%S %p")
 
+        # Calculate expiry date
+        plan_days = {
+            "Monthly": 30,
+            "Quarterly": 90,
+            "Half-Yearly": 180,
+            "Yearly": 365,
+            "One-Time Session": 1,
+            "Other": 0
+        }
+        duration_days = plan_days.get(membership_type, 0)
+        expiry_date = (now_ist + timedelta(days=duration_days)).strftime("%Y-%m-%d") if duration_days > 0 else ""
+
         new_entry = {
             "Date": current_date,
             "Time": current_time,
             "Client Name": client_name.strip().title(),
             "Phone Number": phone_number.strip(),
+            "Client Email": client_email.strip(),
             "Membership Type": membership_type,
             "Amount": amount,
             "Payment Mode": payment_mode,
-            "Notes": notes
+            "Notes": notes,
+            "Expiry Date": expiry_date,
+            "Owner Email": owner_email
         }
 
         df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
         save_data(df)
 
-        # --- Notifications ---
+        # --- Send Notifications ---
         try:
-            # Owner email
+            # Owner Email
             owner_msg = f"""
-New membership entry added:
+New Membership Added:
 
 Client: {client_name.title()}
 Phone: {phone_number}
-Type: {membership_type}
+Email: {client_email}
+Plan: {membership_type}
 Amount: ₹{amount}
 Mode: {payment_mode}
+Expiry Date: {expiry_date}
 Notes: {notes}
+Added by: {owner_email}
 Time: {current_time}, {current_date}
 """
-            send_email(OWNER_EMAIL, f"New Membership: {client_name.title()}", owner_msg)
+            send_email(owner_email, f"New Membership Added: {client_name.title()}", owner_msg)
 
             # Client WhatsApp
-            client_msg = f"Hi {client_name.title()}, thank you for your payment of ₹{amount:.2f} for your {membership_type} membership at our gym! 💪 See you soon!"
+            client_msg = f"Hi {client_name.title()}, thanks for your payment of ₹{amount:.2f} for your {membership_type} plan! 💪 Expiry: {expiry_date}."
             send_whatsapp(phone_number, client_msg)
 
-            st.success(f"✅ Entry added for {client_name.title()} and notifications sent!")
+            # Client Email
+            if client_email:
+                client_email_body = f"""
+Hi {client_name.title()},
+
+Thank you for your payment of ₹{amount:.2f} for your {membership_type} membership.
+
+Payment Mode: {payment_mode}
+Date: {current_date}, Time: {current_time}
+Expiry Date: {expiry_date}
+
+See you soon at the gym! 💪
+"""
+                send_email(client_email, "Membership Payment Confirmation", client_email_body)
+
+            st.success(f"✅ Entry added and notifications sent to {client_name.title()}!")
+
         except Exception as e:
             st.warning(f"⚠️ Entry saved, but failed to send notifications: {e}")
 
@@ -175,3 +240,16 @@ if not df.empty:
     st.bar_chart(chart_data)
 else:
     st.info("No entries recorded yet. Start by adding a new member!")
+
+# --- Expiry Check Section ---
+st.subheader("⏰ Expiring Soon (within 3 days)")
+if not df.empty:
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
+    df["Expiry Date"] = pd.to_datetime(df["Expiry Date"], errors="coerce")
+    expiring = df[(df["Expiry Date"] - pd.Timestamp(today)).dt.days.between(0, 3, inclusive="both")]
+
+    if not expiring.empty:
+        st.warning("⚠️ Some memberships are expiring soon!")
+        st.dataframe(expiring[["Client Name", "Phone Number", "Client Email", "Membership Type", "Expiry Date", "Owner Email"]], use_container_width=True)
+    else:
+        st.info("✅ No memberships are expiring in the next 3 days.")
