@@ -2,206 +2,216 @@ import streamlit as st
 import pandas as pd
 import bcrypt
 from datetime import datetime, timedelta
-import pytz
-import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-# --- CONFIGURATION ---
-OWNER_EMAIL = "owner@gmail.com"  # your email
-OWNER_PHONE = "7019384280"       # your number
-OWNER_PASSWORD = "admin123"      # owner password
+# ---------------------------
+# Basic Config
+# ---------------------------
+st.set_page_config(page_title="Gym Membership Manager", page_icon="💪", layout="centered")
 
-TIMEZONE = pytz.timezone("Asia/Kolkata")
-FILE_PATH = "membership.xlsx"
+OWNER_EMAIL = "yourowneremail@gmail.com"  # change this to your Gmail
+OWNER_PASSWORD = "yourapppassword"  # generated app password
+OWNER_NUMBER = "7019384280"
 
-# --- INITIAL STATE ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "role" not in st.session_state:
-    st.session_state.role = None
-if "email" not in st.session_state:
-    st.session_state.email = None
+# ---------------------------
+# Functions
+# ---------------------------
 
+def send_email(receiver_email, subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = OWNER_EMAIL
+        msg["To"] = receiver_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
 
-# --- LOAD / SAVE DATA ---
-def load_data():
-    if os.path.exists(FILE_PATH):
-        try:
-            df = pd.read_excel(FILE_PATH)
-        except Exception:
-            df = pd.DataFrame(columns=["Name", "Email", "Phone", "Plan", "Join Date", "Expiry Date", "Added By"])
-    else:
-        df = pd.DataFrame(columns=["Name", "Email", "Phone", "Plan", "Join Date", "Expiry Date", "Added By"])
-    return df
-
-def save_data(df):
-    df.to_excel(FILE_PATH, index=False)
-    st.success("✅ Data saved successfully!")
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(OWNER_EMAIL, OWNER_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        st.warning(f"Email sending failed: {e}")
+        return False
 
 
-# --- LOGIN SYSTEM ---
-def login_form():
-    st.title("🔐 Membership Portal Login")
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def calc_expiry(start_date, plan):
+    plan_days = {
+        "1 Month": 30,
+        "3 Months": 90,
+        "6 Months": 180,
+        "1 Year": 365
+    }
+    return start_date + timedelta(days=plan_days[plan])
+
+
+# ---------------------------
+# Data Storage (in memory for demo)
+# ---------------------------
+if "users" not in st.session_state:
+    st.session_state.users = {
+        OWNER_EMAIL: {"password": hash_password("admin123"), "role": "owner"}
+    }
+
+if "members" not in st.session_state:
+    st.session_state.members = pd.DataFrame(columns=["Name", "Email", "Plan", "Start", "Expiry"])
+
+
+# ---------------------------
+# Authentication
+# ---------------------------
+
+def login_section():
+    st.subheader("🔐 Login")
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
-    login_btn = st.button("Login")
-
-    if login_btn:
-        if email == OWNER_EMAIL and password == OWNER_PASSWORD:
-            st.session_state.logged_in = True
-            st.session_state.role = "owner"
-            st.session_state.email = email
-            st.success("Welcome Owner!")
-            st.rerun()
-        else:
-            df_staff = load_data()
-            if email in df_staff["Added By"].values:
+    if st.button("Login"):
+        if email in st.session_state.users:
+            user = st.session_state.users[email]
+            if check_password(password, user["password"]):
                 st.session_state.logged_in = True
-                st.session_state.role = "staff"
-                st.session_state.email = email
-                st.success(f"Welcome {email} (Staff)")
-                st.rerun()
+                st.session_state.role = user["role"]
+                st.success(f"Welcome {user['role'].capitalize()}!")
             else:
-                st.error("Invalid credentials or unauthorized email.")
+                st.error("Incorrect password.")
+        else:
+            st.error("Email not found.")
+
+    st.markdown("---")
+    st.write("Don't have an account? Register below.")
 
 
-def logout():
-    st.session_state.logged_in = False
-    st.session_state.role = None
-    st.session_state.email = None
-    st.rerun()
+def register_section():
+    st.subheader("🧾 Staff Registration")
+    email = st.text_input("Staff Email")
+    password = st.text_input("Create Password", type="password")
+
+    if st.button("Register"):
+        if email in st.session_state.users:
+            st.warning("Email already registered.")
+        else:
+            st.session_state.users[email] = {
+                "password": hash_password(password),
+                "role": "staff"
+            }
+            st.success("Staff registered successfully!")
 
 
-# --- MEMBER MANAGEMENT ---
-def calculate_expiry(plan):
-    now = datetime.now(TIMEZONE)
-    if plan == "1 Month":
-        return now + timedelta(days=30)
-    elif plan == "3 Months":
-        return now + timedelta(days=90)
-    elif plan == "6 Months":
-        return now + timedelta(days=180)
-    elif plan == "1 Year":
-        return now + timedelta(days=365)
-    else:
-        return now
-
-def add_member():
-    st.subheader("🧾 Register New Member")
-
-    df = load_data()
-
-    name = st.text_input("Full Name")
-    email = st.text_input("Email")
-    phone = st.text_input("Phone Number")
-    plan = st.selectbox("Select Membership Plan", ["1 Month", "3 Months", "6 Months", "1 Year"])
-
-    if st.button("Add Member"):
-        if not name or not email or not phone:
-            st.warning("Please fill all fields.")
-            return
-
-        if email in df["Email"].values:
-            st.warning("Member already exists!")
-            return
-
-        join_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-        expiry_date = calculate_expiry(plan).strftime("%Y-%m-%d %H:%M:%S")
-
-        new_member = pd.DataFrame([{
-            "Name": name,
-            "Email": email,
-            "Phone": phone,
-            "Plan": plan,
-            "Join Date": join_date,
-            "Expiry Date": expiry_date,
-            "Added By": st.session_state.email
-        }])
-
-        df = pd.concat([df, new_member], ignore_index=True)
-        save_data(df)
-        st.success(f"Member {name} added successfully with {plan} plan.")
-        st.info(f"Expiry Date: {expiry_date}")
-
-
-def view_members():
-    st.subheader("📋 Member Records")
-    df = load_data()
-
-    if df.empty:
-        st.info("No members found.")
-        return
-
-    st.dataframe(df, use_container_width=True)
-
-
-def manage_members():
-    st.subheader("⚙️ Manage Members (Owner Only)")
-    df = load_data()
-
-    if df.empty:
-        st.info("No members found.")
-        return
-
-    st.dataframe(df, use_container_width=True)
-
-    selected_email = st.selectbox("Select member to delete", df["Email"].tolist())
-
-    if st.button("Delete Member"):
-        df = df[df["Email"] != selected_email]
-        save_data(df)
-        st.success("Member deleted successfully.")
-        st.rerun()
-
+# ---------------------------
+# Main Owner/Staff Dashboard
+# ---------------------------
 
 def dashboard():
-    st.subheader("📊 Dashboard")
-    df = load_data()
-
-    if df.empty:
-        st.info("No members to display.")
-        return
-
-    df["Expiry Date"] = pd.to_datetime(df["Expiry Date"], errors="coerce")
-    today = datetime.now(TIMEZONE)
-    active = df[df["Expiry Date"] > today]
-    expired = df[df["Expiry Date"] <= today]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Members", len(df))
-    col2.metric("Active Members", len(active))
-    col3.metric("Expired Members", len(expired))
-
-    st.dataframe(df, use_container_width=True)
-
-
-# --- MAIN APP ---
-def main():
-    if not st.session_state.logged_in:
-        login_form()
-        return
-
-    st.sidebar.write(f"👤 Logged in as: {st.session_state.email}")
-    st.sidebar.write(f"Role: {st.session_state.role.capitalize()}")
-    st.sidebar.button("Logout", on_click=logout)
+    role_display = st.session_state.role.capitalize() if st.session_state.role else "Not Logged In"
+    st.sidebar.success(f"Role: {role_display}")
 
     if st.session_state.role == "owner":
-        dashboard()
-        tab1, tab2, tab3 = st.tabs(["Add Member", "View Members", "Manage Members"])
-        with tab1:
+        st.title("🏋️‍♂️ Owner Dashboard")
+        st.write("Manage all members and staff here.")
+
+        menu = st.sidebar.radio("Menu", ["Add Member", "View Members", "Send Expiry Emails", "Logout"])
+
+        if menu == "Add Member":
             add_member()
-        with tab2:
-            view_members()
-        with tab3:
-            manage_members()
+        elif menu == "View Members":
+            view_members(editable=True)
+        elif menu == "Send Expiry Emails":
+            send_expiry_notifications()
+        elif menu == "Logout":
+            st.session_state.logged_in = False
+            st.experimental_rerun()
 
     elif st.session_state.role == "staff":
-        st.info("Staff Access: You can only add new members.")
-        add_member()
-        st.divider()
-        view_members()
+        st.title("👩‍💼 Staff Dashboard")
+        st.write("You can add and view members (editing disabled).")
 
+        menu = st.sidebar.radio("Menu", ["Add Member", "View Members", "Logout"])
+        if menu == "Add Member":
+            add_member()
+        elif menu == "View Members":
+            view_members(editable=False)
+        elif menu == "Logout":
+            st.session_state.logged_in = False
+            st.experimental_rerun()
+
+
+# ---------------------------
+# Member Functions
+# ---------------------------
+
+def add_member():
+    st.subheader("➕ Add New Member")
+    name = st.text_input("Member Name")
+    email = st.text_input("Member Email")
+    plan = st.selectbox("Select Plan", ["1 Month", "3 Months", "6 Months", "1 Year"])
+    start = st.date_input("Start Date", datetime.today())
+
+    if st.button("Add Member"):
+        expiry = calc_expiry(start, plan)
+        new_member = pd.DataFrame([[name, email, plan, start, expiry]],
+                                  columns=["Name", "Email", "Plan", "Start", "Expiry"])
+        st.session_state.members = pd.concat([st.session_state.members, new_member], ignore_index=True)
+        st.success(f"Member {name} added successfully until {expiry.strftime('%d-%m-%Y')}.")
+
+        # Notify via email
+        send_email(email, "Welcome to Gym Membership",
+                   f"Hi {name}, your {plan} membership is active till {expiry.strftime('%d-%m-%Y')}.\n- {OWNER_EMAIL}")
+
+
+def view_members(editable=False):
+    st.subheader("📋 Member List")
+    if st.session_state.members.empty:
+        st.info("No members yet.")
     else:
-        st.error("Unknown role! Please log in again.")
+        st.dataframe(st.session_state.members)
+        if editable and st.button("Clear All Members"):
+            st.session_state.members = pd.DataFrame(columns=["Name", "Email", "Plan", "Start", "Expiry"])
+            st.success("All member data cleared.")
+
+
+def send_expiry_notifications():
+    today = datetime.today().date()
+    expired = st.session_state.members[pd.to_datetime(st.session_state.members["Expiry"]).dt.date <= today]
+
+    if expired.empty:
+        st.info("No memberships expired today.")
+    else:
+        for _, row in expired.iterrows():
+            send_email(row["Email"], "Membership Expired",
+                       f"Hi {row['Name']}, your {row['Plan']} plan expired on {row['Expiry']}. Please renew soon.")
+        st.success("Expiry emails sent successfully!")
+
+
+# ---------------------------
+# App Flow
+# ---------------------------
+
+def main():
+    st.title("💪 Gym Membership System")
+
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "role" not in st.session_state:
+        st.session_state.role = None
+
+    if not st.session_state.logged_in:
+        tab1, tab2 = st.tabs(["Login", "Register Staff"])
+        with tab1:
+            login_section()
+        with tab2:
+            register_section()
+    else:
+        dashboard()
 
 
 if __name__ == "__main__":
