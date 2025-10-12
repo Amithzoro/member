@@ -10,9 +10,11 @@ TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
 
 # ---------- LOGIN CREDENTIALS ----------
-# Precomputed bcrypt hash for "panda@2006"
+# Owner: amith
+# Password: panda@2006
+# Precomputed bcrypt hash for "panda@2006" (fixed so login works every run)
 USERS = {
-    "amith": b"$2b$12$Xm3K0K6pE1zGxvB4K5fPheJ2eI0UWyYq0y9U1eXb9h9Gf1W2Zx7Ki"
+    "amith": b"$2b$12$q9yWOGUm1kHs12O35OvPcuii8631RVa9nUjfQQSTiSIRL033XZcey"
 }
 
 # ---------- PAGE SETTINGS ----------
@@ -52,18 +54,20 @@ def load_data():
 def save_data(df):
     df.to_excel(DATA_FILE, index=False)
 
+# initialize persistent session state
 if "members_df" not in st.session_state:
     st.session_state.members_df = load_data()
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+if "activity_log" not in st.session_state:
+    st.session_state.activity_log = []  # list of (timestamp, message)
 
 # ---------- LOGIN ----------
 st.sidebar.header("🔐 Login")
 username = st.sidebar.text_input("Username")
 password_input = st.sidebar.text_input("Password", type="password")
 login_btn = st.sidebar.button("Login")
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = None
 
 if login_btn:
     if username in USERS and bcrypt.checkpw(password_input.encode(), USERS[username]):
@@ -103,13 +107,23 @@ if st.session_state.logged_in:
                 }])
                 st.session_state.members_df = pd.concat([st.session_state.members_df, new_data], ignore_index=True)
                 save_data(st.session_state.members_df)
+
+                # add to activity log with timestamp
+                ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                log_msg = f"{ts} — Added member: {name} (Recorded by: {recorded_by})"
+                st.session_state.activity_log.append(log_msg)
+
                 st.success(f"✅ Added member: {name}")
+                # show the single log notification (floating) once per addition
+                st.experimental_rerun()
 
     # ---------- VIEW & FILTER ----------
     st.subheader("📋 Member List")
     filter_name = st.text_input("Search by Name")
     if filter_name:
-        filtered_df = st.session_state.members_df[st.session_state.members_df["Name"].astype(str).str.contains(filter_name, case=False, na=False)]
+        filtered_df = st.session_state.members_df[
+            st.session_state.members_df["Name"].astype(str).str.contains(filter_name, case=False, na=False)
+        ]
         st.dataframe(filtered_df)
     else:
         st.dataframe(st.session_state.members_df)
@@ -131,6 +145,15 @@ if st.session_state.logged_in:
         st.table(expiring[["Name", "Phone", "End_Date", "Days_Left", "Recorded_By"]])
     else:
         st.success("✅ No memberships expiring soon.")
+
+    # ---------- ACTIVITY LOG (shown once in single area) ----------
+    st.subheader("📝 Activity Log")
+    if st.session_state.activity_log:
+        # show newest first
+        for entry in reversed(st.session_state.activity_log):
+            st.write(entry)
+    else:
+        st.write("No activity yet.")
 
     # ---------- LOGOUT ----------
     if st.sidebar.button("Logout"):
