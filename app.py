@@ -11,9 +11,9 @@ st.set_page_config(page_title="Gym Membership System", layout="wide")
 EXCEL_FILE = "membership.xlsx"
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 
-# ===================================
+# ==========================
 # LOAD / SAVE FUNCTIONS
-# ===================================
+# ==========================
 def load_data(sheet_name="Members"):
     if os.path.exists(EXCEL_FILE):
         try:
@@ -24,7 +24,7 @@ def load_data(sheet_name="Members"):
             else:
                 return pd.DataFrame(columns=[
                     "Username", "Password", "Role", "Name", "Phone",
-                    "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At"
+                    "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At", "Recorded_By"
                 ])
         if "Start_Date" in df.columns:
             df["Start_Date"] = pd.to_datetime(df["Start_Date"], errors="coerce")
@@ -37,7 +37,7 @@ def load_data(sheet_name="Members"):
         else:
             return pd.DataFrame(columns=[
                 "Username", "Password", "Role", "Name", "Phone",
-                "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At"
+                "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At", "Recorded_By"
             ])
 
 def save_data(members_df, log_df):
@@ -45,9 +45,9 @@ def save_data(members_df, log_df):
         members_df.to_excel(writer, sheet_name="Members", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
-    # Auto create a monthly backup file
+    # Auto-create a monthly backup file with timestamp
     month_name = calendar.month_name[datetime.now(TIMEZONE).month]
-    monthly_file = f"membership_{month_name[:3]}.xlsx"
+    monthly_file = f"membership_{month_name[:3]}_{datetime.now(TIMEZONE).strftime('%d-%H-%M-%S')}.xlsx"
     with pd.ExcelWriter(monthly_file, engine="openpyxl") as writer:
         members_df.to_excel(writer, sheet_name="Members", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
@@ -55,9 +55,9 @@ def save_data(members_df, log_df):
 members_df = load_data("Members")
 log_df = load_data("Login_Log")
 
-# ===================================
+# ==========================
 # AUTH FUNCTIONS
-# ===================================
+# ==========================
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
@@ -67,9 +67,9 @@ def check_password(password, hashed):
     except Exception:
         return False
 
-# ===================================
+# ==========================
 # LOGIN / SIGNUP
-# ===================================
+# ==========================
 st.title("🏋️ Gym Membership Management")
 
 menu = st.sidebar.radio("Menu", ["Login", "Sign Up"])
@@ -96,7 +96,8 @@ if menu == "Sign Up":
                 "End_Date": None,
                 "Membership_Type": "",
                 "Amount": 0,
-                "Recorded_At": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                "Recorded_At": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S"),
+                "Recorded_By": username
             }])
             members_df = pd.concat([members_df, new_user], ignore_index=True)
             save_data(members_df, log_df)
@@ -129,9 +130,9 @@ elif menu == "Login":
         else:
             st.error("❌ User not found")
 
-# ===================================
+# ==========================
 # AFTER LOGIN
-# ===================================
+# ==========================
 if "logged_in" in st.session_state and st.session_state["logged_in"]:
     role = st.session_state["role"]
     username = st.session_state["username"]
@@ -140,9 +141,9 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
     members_df = load_data("Members")
     log_df = load_data("Login_Log")
 
-    # ===================================
+    # ==========================
     # MEMBERSHIP FORM
-    # ===================================
+    # ==========================
     with st.form("membership_form", clear_on_submit=True):
         st.subheader("🧾 Add / Update Membership")
         name = st.text_input("Member Name")
@@ -155,9 +156,11 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
 
         if submit:
             recorded_at = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+            hashed_password = members_df.loc[members_df["Username"] == username, "Password"].values[0]
+
             new_data = pd.DataFrame([{
-                "Username": username,
-                "Password": members_df.loc[members_df["Username"] == username, "Password"].values[0],
+                "Username": username,  # who added this membership
+                "Password": hashed_password,
                 "Role": role,
                 "Name": name,
                 "Phone": phone,
@@ -165,45 +168,57 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
                 "End_Date": end_date,
                 "Membership_Type": membership_type,
                 "Amount": amount,
-                "Recorded_At": recorded_at
+                "Recorded_At": recorded_at,
+                "Recorded_By": username
             }])
-            members_df = pd.concat([members_df[members_df["Username"] != username], new_data], ignore_index=True)
+
+            members_df = pd.concat([members_df, new_data], ignore_index=True)  # append instead of overwrite
             save_data(members_df, log_df)
             st.success("✅ Membership saved! Auto-saved monthly backup.")
 
-    # ===================================
+    # ==========================
     # OWNER VIEW
-    # ===================================
+    # ==========================
     if role == "owner":
-        st.subheader("📋 All Members (with Join Time)")
-        st.dataframe(members_df)
-
-        # REMINDERS
-        st.subheader("🔔 Expiry Reminders")
+        st.subheader("📋 All Members")
         if not members_df.empty:
-            members_df["End_Date"] = pd.to_datetime(members_df["End_Date"], errors="coerce")
-            today = datetime.now(TIMEZONE).date()
-            members_df["Days_Left"] = (members_df["End_Date"].dt.date - today).apply(
-                lambda x: x.days if pd.notnull(x) else None
-            )
-            expiring = members_df[(members_df["Days_Left"] >= 0) & (members_df["Days_Left"] <= 3)]
-            if not expiring.empty:
-                st.warning("⚠️ Memberships expiring soon:")
-                st.table(expiring[["Username", "Name", "End_Date", "Days_Left"]])
-            else:
-                st.success("✅ No memberships expiring soon.")
+            st.dataframe(members_df.sort_values("Recorded_At", ascending=False))
+        else:
+            st.info("No members found.")
 
-        # LOGIN HISTORY
+        # Expiry reminders
+        st.subheader("🔔 Expiry Reminders")
+        today = datetime.now(TIMEZONE).date()
+        members_df["Days_Left"] = members_df["End_Date"].apply(
+            lambda x: (x.date() - today).days if pd.notnull(x) else None
+        )
+        expiring = members_df[(members_df["Days_Left"] >= 0) & (members_df["Days_Left"] <= 3)]
+        if not expiring.empty:
+            st.warning("⚠️ Memberships expiring soon:")
+            st.table(expiring[["Name", "Phone", "End_Date", "Days_Left", "Recorded_By"]])
+        else:
+            st.success("✅ No memberships expiring soon.")
+
+        # Login history
         st.subheader("📅 Member Login History")
-        st.dataframe(log_df.sort_values("Login_Time", ascending=False))
+        if not log_df.empty:
+            st.dataframe(log_df.sort_values("Login_Time", ascending=False))
+        else:
+            st.info("No login history found.")
 
-    # ===================================
+    # ==========================
     # MEMBER VIEW
-    # ===================================
+    # ==========================
     if role == "member":
         st.subheader("📖 Your Membership Info")
-        user_data = members_df[members_df["Username"] == username]
+        user_data = members_df[members_df["Recorded_By"] == username].sort_values("Recorded_At", ascending=False)
         if not user_data.empty:
-            st.table(user_data[["Name", "Phone", "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At"]])
+            st.dataframe(user_data[["Name", "Phone", "Start_Date", "End_Date", "Membership_Type", "Amount", "Recorded_At"]])
         else:
             st.info("No membership record found.")
+
+        # Optional: show own login history
+        user_log = log_df[log_df["Username"] == username].sort_values("Login_Time", ascending=False)
+        if not user_log.empty:
+            st.subheader("📅 Your Login History")
+            st.dataframe(user_log)
