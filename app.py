@@ -10,11 +10,9 @@ TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
 
 # ---------- LOGIN CREDENTIALS ----------
-# Owner: amith
-# Password: panda@2006
-# Precomputed bcrypt hash for "panda@2006" (fixed so login works every run)
+# Owner: amith / Password: panda@2006
 USERS = {
-    "amith": b"$2b$12$q9yWOGUm1kHs12O35OvPcuii8631RVa9nUjfQQSTiSIRL033XZcey"
+    "amith": b"$2b$12$5JrF5M7Yv3F7xF4L5x9tH.AOTC0g5EB1wNwjEOVsYyO6n/nXDAeZe"
 }
 
 # ---------- PAGE SETTINGS ----------
@@ -54,14 +52,14 @@ def load_data():
 def save_data(df):
     df.to_excel(DATA_FILE, index=False)
 
-# initialize persistent session state
+# Persistent session state
 if "members_df" not in st.session_state:
     st.session_state.members_df = load_data()
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
 if "activity_log" not in st.session_state:
-    st.session_state.activity_log = []  # list of (timestamp, message)
+    st.session_state.activity_log = []
 
 # ---------- LOGIN ----------
 st.sidebar.header("🔐 Login")
@@ -79,7 +77,6 @@ if login_btn:
 
 # ---------- MAIN APP ----------
 if st.session_state.logged_in:
-
     st.title("🏋️‍♂️ Gym Membership Tracker")
     st.caption("Track members, expiry dates, and reminders easily.")
     st.success(f"Logged in as **{st.session_state.username}**")
@@ -108,14 +105,11 @@ if st.session_state.logged_in:
                 st.session_state.members_df = pd.concat([st.session_state.members_df, new_data], ignore_index=True)
                 save_data(st.session_state.members_df)
 
-                # add to activity log with timestamp
+                # Activity log
                 ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                 log_msg = f"{ts} — Added member: {name} (Recorded by: {recorded_by})"
                 st.session_state.activity_log.append(log_msg)
-
                 st.success(f"✅ Added member: {name}")
-                # show the single log notification (floating) once per addition
-                st.experimental_rerun()
 
     # ---------- VIEW & FILTER ----------
     st.subheader("📋 Member List")
@@ -146,10 +140,9 @@ if st.session_state.logged_in:
     else:
         st.success("✅ No memberships expiring soon.")
 
-    # ---------- ACTIVITY LOG (shown once in single area) ----------
+    # ---------- ACTIVITY LOG ----------
     st.subheader("📝 Activity Log")
     if st.session_state.activity_log:
-        # show newest first
         for entry in reversed(st.session_state.activity_log):
             st.write(entry)
     else:
