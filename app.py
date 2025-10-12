@@ -52,14 +52,16 @@ def load_data():
 def save_data(df):
     df.to_excel(DATA_FILE, index=False)
 
-# Persistent session state
+# ---------- SESSION STATE ----------
 if "members_df" not in st.session_state:
     st.session_state.members_df = load_data()
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = None
 if "activity_log" not in st.session_state:
-    st.session_state.activity_log = []
+    st.session_state.activity_log = []  # member activity log
+if "login_log" not in st.session_state:
+    st.session_state.login_log = []  # login attempts log
 
 # ---------- LOGIN ----------
 st.sidebar.header("🔐 Login")
@@ -68,12 +70,15 @@ password_input = st.sidebar.text_input("Password", type="password")
 login_btn = st.sidebar.button("Login")
 
 if login_btn:
+    ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     if username in USERS and bcrypt.checkpw(password_input.encode(), USERS[username]):
         st.session_state.logged_in = True
         st.session_state.username = username
         st.sidebar.success(f"✅ Welcome, {username}!")
+        st.session_state.login_log.append((ts, username, "Success"))
     else:
         st.sidebar.error("❌ Invalid username or password")
+        st.session_state.login_log.append((ts, username, "Failed"))
 
 # ---------- MAIN APP ----------
 if st.session_state.logged_in:
@@ -105,8 +110,7 @@ if st.session_state.logged_in:
                 st.session_state.members_df = pd.concat([st.session_state.members_df, new_data], ignore_index=True)
                 save_data(st.session_state.members_df)
 
-                # Activity log
-                ts = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                # Member activity log
                 log_msg = f"{ts} — Added member: {name} (Recorded by: {recorded_by})"
                 st.session_state.activity_log.append(log_msg)
                 st.success(f"✅ Added member: {name}")
@@ -140,13 +144,21 @@ if st.session_state.logged_in:
     else:
         st.success("✅ No memberships expiring soon.")
 
-    # ---------- ACTIVITY LOG ----------
-    st.subheader("📝 Activity Log")
+    # ---------- MEMBER ACTIVITY LOG ----------
+    st.subheader("📝 Member Activity Log")
     if st.session_state.activity_log:
         for entry in reversed(st.session_state.activity_log):
             st.write(entry)
     else:
         st.write("No activity yet.")
+
+    # ---------- LOGIN ISSUE LOG ----------
+    st.subheader("⚠️ Login Issue Log")
+    if st.session_state.login_log:
+        log_df = pd.DataFrame(st.session_state.login_log, columns=["Timestamp", "Username", "Status"])
+        st.dataframe(log_df[::-1])  # newest first
+    else:
+        st.write("No login attempts yet.")
 
     # ---------- LOGOUT ----------
     if st.sidebar.button("Logout"):
