@@ -1,4 +1,3 @@
-# ---------- Import Libraries ----------
 import streamlit as st
 import pandas as pd
 import bcrypt
@@ -10,7 +9,7 @@ import os
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
 
-# --- User credentials ---
+# --- Default Login Users ---
 USERS = {
     "admin": bcrypt.hashpw("1234".encode(), bcrypt.gensalt()),  # username: admin, password: 1234
     "trainer": bcrypt.hashpw("gym2025".encode(), bcrypt.gensalt())
@@ -19,8 +18,23 @@ USERS = {
 # ---------- PAGE SETTINGS ----------
 st.set_page_config(page_title="💪 Gym Membership Tracker", layout="wide")
 
-st.title("🏋️‍♂️ Gym Membership Tracker")
-st.caption("Track members, expiry dates, and reminders easily.")
+# Custom CSS for floating alerts
+st.markdown("""
+    <style>
+        .floating-alert {
+            position: fixed;
+            top: 20px;
+            right: 30px;  /* 👈 change to 'left: 30px;' if you want it on the left side */
+            background-color: #ffcc00;
+            color: black;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            font-weight: 600;
+            z-index: 9999;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ---------- LOAD OR INITIALIZE DATA ----------
 if not os.path.exists(DATA_FILE):
@@ -51,6 +65,8 @@ if login_btn:
 # ---------- MAIN APP ----------
 if st.session_state.logged_in:
 
+    st.title("🏋️‍♂️ Gym Membership Tracker")
+    st.caption("Track members, expiry dates, and reminders easily.")
     st.success(f"Logged in as **{st.session_state.username}**")
 
     # ---------- ADD NEW MEMBER ----------
@@ -85,11 +101,7 @@ if st.session_state.logged_in:
         st.dataframe(members_df)
 
     # ---------- EXPIRY REMINDERS ----------
-    st.subheader("🔔 Expiry Reminders")
-
     members_df["End_Date"] = pd.to_datetime(members_df["End_Date"], errors="coerce")
-
-    # ✅ FIX: no normalize(), just use date() safely
     today = datetime.now(TIMEZONE).date()
 
     members_df["Days_Left"] = members_df["End_Date"].apply(
@@ -99,6 +111,14 @@ if st.session_state.logged_in:
     expiring = members_df[(members_df["Days_Left"] >= 0) & (members_df["Days_Left"] <= 3)]
 
     if not expiring.empty:
+        # Floating alert on top-right corner
+        st.markdown(f"""
+            <div class="floating-alert">
+                ⚠️ Memberships expiring soon!<br>
+                {', '.join(expiring['Name'].tolist())}
+            </div>
+        """, unsafe_allow_html=True)
+
         st.warning("⚠️ Memberships expiring soon:")
         st.table(expiring[["Name", "Phone", "End_Date", "Days_Left", "Recorded_By"]])
     else:
