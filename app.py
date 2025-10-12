@@ -45,7 +45,7 @@ def save_data(members_df, log_df):
         members_df.to_excel(writer, sheet_name="Members", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
-    # Auto-create a monthly backup file with timestamp
+    # Auto-create a monthly backup file
     month_name = calendar.month_name[datetime.now(TIMEZONE).month]
     monthly_file = f"membership_{month_name[:3]}_{datetime.now(TIMEZONE).strftime('%d-%H-%M-%S')}.xlsx"
     with pd.ExcelWriter(monthly_file, engine="openpyxl") as writer:
@@ -159,7 +159,7 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
             hashed_password = members_df.loc[members_df["Username"] == username, "Password"].values[0]
 
             new_data = pd.DataFrame([{
-                "Username": username,  # who added this membership
+                "Username": username,
                 "Password": hashed_password,
                 "Role": role,
                 "Name": name,
@@ -172,7 +172,7 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
                 "Recorded_By": username
             }])
 
-            members_df = pd.concat([members_df, new_data], ignore_index=True)  # append instead of overwrite
+            members_df = pd.concat([members_df, new_data], ignore_index=True)
             save_data(members_df, log_df)
             st.success("✅ Membership saved! Auto-saved monthly backup.")
 
@@ -186,12 +186,14 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
         else:
             st.info("No members found.")
 
-        # Expiry reminders
+        # ✅ FIXED EXPIRY REMINDER BLOCK
         st.subheader("🔔 Expiry Reminders")
-        today = datetime.now(TIMEZONE).date()
+        members_df["End_Date"] = pd.to_datetime(members_df["End_Date"], errors="coerce")
+        today = datetime.now(TIMEZONE).normalize()
         members_df["Days_Left"] = members_df["End_Date"].apply(
-            lambda x: (x.date() - today).days if pd.notnull(x) else None
+            lambda x: (x - today).days if pd.notnull(x) else None
         )
+
         expiring = members_df[(members_df["Days_Left"] >= 0) & (members_df["Days_Left"] <= 3)]
         if not expiring.empty:
             st.warning("⚠️ Memberships expiring soon:")
@@ -217,7 +219,6 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
         else:
             st.info("No membership record found.")
 
-        # Optional: show own login history
         user_log = log_df[log_df["Username"] == username].sort_values("Login_Time", ascending=False)
         if not user_log.empty:
             st.subheader("📅 Your Login History")
