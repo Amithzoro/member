@@ -9,10 +9,10 @@ import os
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
 
-# ---------- LOGIN CREDENTIALS (precomputed bcrypt hashes) ----------
+# ---------- LOGIN CREDENTIALS ----------
+# Precomputed bcrypt hash for "panda@2006"
 USERS = {
-    "admin": b"$2b$12$7ix4X2G9Ku6jPztCZg1A7eU7qLzZbD9T1Q2bKQfK7O6xN6W1f3F3O",   # "1234"
-    "trainer": b"$2b$12$wHJqFh9nXULU3i.Eco6kPO44pGltqIcFJq2Fp3sO7XoKJ1jDkfD5S" # "gym2025"
+    "amith": b"$2b$12$Xm3K0K6pE1zGxvB4K5fPheJ2eI0UWyYq0y9U1eXb9h9Gf1W2Zx7Ki"
 }
 
 # ---------- PAGE SETTINGS ----------
