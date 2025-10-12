@@ -10,7 +10,7 @@ import os
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
 
-# --- User credentials (you can add more users) ---
+# --- User credentials ---
 USERS = {
     "admin": bcrypt.hashpw("1234".encode(), bcrypt.gensalt()),  # username: admin, password: 1234
     "trainer": bcrypt.hashpw("gym2025".encode(), bcrypt.gensalt())
@@ -22,7 +22,7 @@ st.set_page_config(page_title="💪 Gym Membership Tracker", layout="wide")
 st.title("🏋️‍♂️ Gym Membership Tracker")
 st.caption("Track members, expiry dates, and reminders easily.")
 
-# ---------- LOAD / INITIALIZE DATA ----------
+# ---------- LOAD OR INITIALIZE DATA ----------
 if not os.path.exists(DATA_FILE):
     df = pd.DataFrame(columns=["Name", "Phone", "Start_Date", "End_Date", "Recorded_By"])
     df.to_excel(DATA_FILE, index=False)
@@ -88,10 +88,12 @@ if st.session_state.logged_in:
     st.subheader("🔔 Expiry Reminders")
 
     members_df["End_Date"] = pd.to_datetime(members_df["End_Date"], errors="coerce")
-    today = pd.Timestamp.now(TIMEZONE).normalize()
+
+    # ✅ FIX: no normalize(), just use date() safely
+    today = datetime.now(TIMEZONE).date()
 
     members_df["Days_Left"] = members_df["End_Date"].apply(
-        lambda x: (x - today).days if pd.notnull(x) else None
+        lambda x: (x.date() - today).days if pd.notnull(x) else None
     )
 
     expiring = members_df[(members_df["Days_Left"] >= 0) & (members_df["Days_Left"] <= 3)]
@@ -105,6 +107,7 @@ if st.session_state.logged_in:
     # ---------- LOGOUT ----------
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
+        st.session_state.username = None
         st.experimental_rerun()
 
 else:
