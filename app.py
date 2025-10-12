@@ -1,8 +1,10 @@
+# gym_tracker_final.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
 import os
+import time
 
 # ---------- CONFIG ----------
 TIMEZONE = pytz.timezone("Asia/Kolkata")
@@ -10,37 +12,35 @@ DATA_FILE = "members.xlsx"
 ACTIVITY_LOG_FILE = "activity_log.csv"
 LOGIN_LOG_FILE = "login_log.csv"
 
-# ---------- OWNER CREDENTIALS ----------
 OWNER_USERNAME = "amith"
 OWNER_PASSWORD = "panda@2006"
 
-# ---------- PAGE SETTINGS ----------
 st.set_page_config(page_title="💪 Gym Membership Tracker", layout="wide")
 
-# ---------- HELPER FUNCTIONS ----------
+# ---------- HELPERS ----------
 def now_str():
     return datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
-def load_excel(path, columns):
+def load_excel(path, cols):
     if os.path.exists(path):
         try:
             return pd.read_excel(path)
         except:
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame(columns=cols)
     else:
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=cols)
 
-def load_csv(path, columns):
+def save_excel(df, path):
+    df.to_excel(path, index=False)
+
+def load_csv(path, cols):
     if os.path.exists(path):
         try:
             return pd.read_csv(path)
         except:
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame(columns=cols)
     else:
-        return pd.DataFrame(columns=columns)
-
-def save_excel(df, path):
-    df.to_excel(path, index=False)
+        return pd.DataFrame(columns=cols)
 
 def append_csv(path, row):
     df = load_csv(path, row.keys())
@@ -106,21 +106,43 @@ if st.session_state.logged_in:
                 }
                 st.session_state.members_df = pd.concat([st.session_state.members_df, pd.DataFrame([new_row])], ignore_index=True)
                 save_excel(st.session_state.members_df, DATA_FILE)
-                # log activity
                 append_csv(ACTIVITY_LOG_FILE, {"Timestamp":added_at,"Action":"Add Member","Details":f"{name} (By: {recorded_by})"})
                 st.session_state.activity_df = load_csv(ACTIVITY_LOG_FILE, ["Timestamp","Action","Details"])
                 st.success(f"✅ Added member: {name}")
                 st.experimental_rerun()
 
-    # ---------- VIEW MEMBERS ----------
+    # ---------- BULK CSV UPLOAD ----------
+    st.subheader("📥 Upload Members CSV")
+    st.markdown("CSV must have columns: Name, Phone, Start_Date, End_Date")
+    uploaded_file = st.file_uploader("Choose CSV file", type=["csv"])
+    if uploaded_file:
+        try:
+            df_new = pd.read_csv(uploaded_file)
+            required_cols = ["Name","Phone","Start_Date","End_Date"]
+            if not all(col in df_new.columns for col in required_cols):
+                st.error(f"CSV must contain columns: {required_cols}")
+            else:
+                df_new["Recorded_By"] = st.session_state.username
+                df_new["Added_At"] = now_str()
+                st.session_state.members_df = pd.concat([st.session_state.members_df, df_new], ignore_index=True)
+                save_excel(st.session_state.members_df, DATA_FILE)
+                for _, row in df_new.iterrows():
+                    append_csv(ACTIVITY_LOG_FILE, {"Timestamp":row["Added_At"], "Action":"Add Member", "Details":f"{row['Name']} (By: {st.session_state.username})"})
+                st.success(f"✅ Added {len(df_new)} members successfully!")
+                st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
+
+    # ---------- VIEW & FILTER ----------
     st.subheader("📋 Member List")
     filter_name = st.text_input("Search by Name")
     members_show = st.session_state.members_df.copy()
     if filter_name:
         members_show = members_show[members_show["Name"].astype(str).str.contains(filter_name, case=False, na=False)]
     st.dataframe(members_show.reset_index(drop=True))
+    st.download_button("📥 Download Members", data=members_show.to_csv(index=False).encode(), file_name="members.csv")
 
-    # ---------- EXPIRY ALERTS ----------
+    # ---------- EXPIRY ALERT (Floating 12 sec) ----------
     today = datetime.now(TIMEZONE).date()
     df = members_show.copy()
     df["End_Date_parsed"] = pd.to_datetime(df["End_Date"], errors="coerce")
@@ -128,17 +150,33 @@ if st.session_state.logged_in:
     expiring = df[(df["Days_Left"].notnull()) & (df["Days_Left"]>=0) & (df["Days_Left"]<=3)]
     if not expiring.empty:
         names = ", ".join(expiring["Name"].fillna("Unknown").tolist())
-        st.markdown(f'<div style="position:fixed;top:20px;right:30px;background-color:#ffcc00;padding:12px 18px;border-radius:10px;font-weight:600;">⚠️ Memberships expiring soon: {names}</div>', unsafe_allow_html=True)
-        st.table(expiring[["Name","Phone","End_Date","Days_Left","Recorded_By"]])
-    else:
-        st.success("✅ No memberships expiring soon.")
+        alert_placeholder = st.empty()
+        alert_html = f"""
+        <div style="
+            position: fixed;
+            top: 20px;
+            right: 30px;
+            background-color: #ffcc00;
+            color: black;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            font-weight: 600;
+            z-index: 9999;
+        ">
+        ⚠️ Memberships expiring soon: {names}
+        </div>
+        """
+        alert_placeholder.markdown(alert_html, unsafe_allow_html=True)
+        time.sleep(12)
+        alert_placeholder.empty()
 
     # ---------- ACTIVITY LOG ----------
     st.subheader("📝 Member Activity Log")
     if not st.session_state.activity_df.empty:
         st.dataframe(st.session_state.activity_df.iloc[::-1].reset_index(drop=True))
     else:
-        st.write("No member activity yet.")
+        st.write("No activity yet.")
 
     # ---------- LOGIN ISSUE LOG ----------
     st.subheader("⚠️ Login Issue Log")
