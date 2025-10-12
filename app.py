@@ -1,10 +1,9 @@
-# gym_tracker_final.py
+# gym_tracker_final_fixed.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
 import os
-import time
 
 # ---------- CONFIG ----------
 TIMEZONE = pytz.timezone("Asia/Kolkata")
@@ -109,7 +108,6 @@ if st.session_state.logged_in:
                 append_csv(ACTIVITY_LOG_FILE, {"Timestamp":added_at,"Action":"Add Member","Details":f"{name} (By: {recorded_by})"})
                 st.session_state.activity_df = load_csv(ACTIVITY_LOG_FILE, ["Timestamp","Action","Details"])
                 st.success(f"✅ Added member: {name}")
-                st.experimental_rerun()
 
     # ---------- BULK CSV UPLOAD ----------
     st.subheader("📥 Upload Members CSV")
@@ -118,18 +116,24 @@ if st.session_state.logged_in:
     if uploaded_file:
         try:
             df_new = pd.read_csv(uploaded_file)
+            # Standardize column names
+            df_new.columns = [c.strip() for c in df_new.columns]
             required_cols = ["Name","Phone","Start_Date","End_Date"]
             if not all(col in df_new.columns for col in required_cols):
                 st.error(f"CSV must contain columns: {required_cols}")
             else:
+                # Convert dates
+                df_new['Start_Date'] = pd.to_datetime(df_new['Start_Date'], errors='coerce').dt.date
+                df_new['End_Date'] = pd.to_datetime(df_new['End_Date'], errors='coerce').dt.date
                 df_new["Recorded_By"] = st.session_state.username
                 df_new["Added_At"] = now_str()
+                # Reindex to match main df
+                df_new = df_new.reindex(columns=st.session_state.members_df.columns, fill_value="")
                 st.session_state.members_df = pd.concat([st.session_state.members_df, df_new], ignore_index=True)
                 save_excel(st.session_state.members_df, DATA_FILE)
                 for _, row in df_new.iterrows():
                     append_csv(ACTIVITY_LOG_FILE, {"Timestamp":row["Added_At"], "Action":"Add Member", "Details":f"{row['Name']} (By: {st.session_state.username})"})
                 st.success(f"✅ Added {len(df_new)} members successfully!")
-                st.experimental_rerun()
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
 
@@ -139,7 +143,7 @@ if st.session_state.logged_in:
     members_show = st.session_state.members_df.copy()
     if filter_name:
         members_show = members_show[members_show["Name"].astype(str).str.contains(filter_name, case=False, na=False)]
-    st.dataframe(members_show.reset_index(drop=True))
+    st.dataframe(members_show.reset_index(drop=True), height=400)
     st.download_button("📥 Download Members", data=members_show.to_csv(index=False).encode(), file_name="members.csv")
 
     # ---------- EXPIRY ALERT (Floating 12 sec) ----------
@@ -150,7 +154,6 @@ if st.session_state.logged_in:
     expiring = df[(df["Days_Left"].notnull()) & (df["Days_Left"]>=0) & (df["Days_Left"]<=3)]
     if not expiring.empty:
         names = ", ".join(expiring["Name"].fillna("Unknown").tolist())
-        alert_placeholder = st.empty()
         alert_html = f"""
         <div style="
             position: fixed;
@@ -167,21 +170,19 @@ if st.session_state.logged_in:
         ⚠️ Memberships expiring soon: {names}
         </div>
         """
-        alert_placeholder.markdown(alert_html, unsafe_allow_html=True)
-        time.sleep(12)
-        alert_placeholder.empty()
+        st.markdown(alert_html, unsafe_allow_html=True)
 
     # ---------- ACTIVITY LOG ----------
     st.subheader("📝 Member Activity Log")
     if not st.session_state.activity_df.empty:
-        st.dataframe(st.session_state.activity_df.iloc[::-1].reset_index(drop=True))
+        st.dataframe(st.session_state.activity_df.iloc[::-1].reset_index(drop=True), height=300)
     else:
         st.write("No activity yet.")
 
     # ---------- LOGIN ISSUE LOG ----------
     st.subheader("⚠️ Login Issue Log")
     if not st.session_state.login_df.empty:
-        st.dataframe(st.session_state.login_df.iloc[::-1].reset_index(drop=True))
+        st.dataframe(st.session_state.login_df.iloc[::-1].reset_index(drop=True), height=300)
     else:
         st.write("No login attempts yet.")
 
