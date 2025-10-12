@@ -9,7 +9,12 @@ import os
 # ---------- CONFIG ----------
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 DATA_FILE = "members.xlsx"
-PASSWORD = b"$2b$12$UhhxxhI4y4TVgCB6bQ2OeOy4Szv0vSVz0MnKcJFXu7uWrf5D.RPpG"  # example bcrypt-hash
+
+# --- User credentials (you can add more users) ---
+USERS = {
+    "admin": bcrypt.hashpw("1234".encode(), bcrypt.gensalt()),  # username: admin, password: 1234
+    "trainer": bcrypt.hashpw("gym2025".encode(), bcrypt.gensalt())
+}
 
 # ---------- PAGE SETTINGS ----------
 st.set_page_config(page_title="💪 Gym Membership Tracker", layout="wide")
@@ -24,20 +29,38 @@ if not os.path.exists(DATA_FILE):
 
 members_df = pd.read_excel(DATA_FILE)
 
-# ---------- AUTHENTICATION ----------
-password_input = st.text_input("Enter admin password:", type="password")
-if bcrypt.checkpw(password_input.encode(), PASSWORD):
+# ---------- LOGIN ----------
+st.sidebar.header("🔐 Login")
 
-    st.success("✅ Logged in successfully!")
+username = st.sidebar.text_input("Username")
+password_input = st.sidebar.text_input("Password", type="password")
+login_btn = st.sidebar.button("Login")
 
-    # ---------- NEW ENTRY FORM ----------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+
+if login_btn:
+    if username in USERS and bcrypt.checkpw(password_input.encode(), USERS[username]):
+        st.session_state.logged_in = True
+        st.session_state.username = username
+        st.sidebar.success(f"✅ Welcome, {username}!")
+    else:
+        st.sidebar.error("❌ Invalid username or password")
+
+# ---------- MAIN APP ----------
+if st.session_state.logged_in:
+
+    st.success(f"Logged in as **{st.session_state.username}**")
+
+    # ---------- ADD NEW MEMBER ----------
     st.subheader("➕ Add New Member")
     with st.form("add_member_form"):
         name = st.text_input("Name")
         phone = st.text_input("Phone")
         start_date = st.date_input("Start Date", datetime.now(TIMEZONE).date())
         end_date = st.date_input("End Date")
-        recorded_by = st.text_input("Recorded By")
+        recorded_by = st.text_input("Recorded By", st.session_state.username)
 
         submitted = st.form_submit_button("Add Member")
         if submitted:
@@ -79,6 +102,10 @@ if bcrypt.checkpw(password_input.encode(), PASSWORD):
     else:
         st.success("✅ No memberships expiring soon.")
 
+    # ---------- LOGOUT ----------
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.experimental_rerun()
+
 else:
-    if password_input:
-        st.error("❌ Incorrect password.")
+    st.info("👈 Please login using the sidebar to continue.")
