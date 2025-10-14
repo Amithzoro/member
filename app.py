@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import os
 import calendar
@@ -9,6 +9,7 @@ import calendar
 st.set_page_config(page_title="Gym Management Login", layout="centered")
 
 EXCEL_FILE = "staff_logins.xlsx"
+MEMBER_FILE = "gym_members.xlsx"
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 
 # ===================================
@@ -35,19 +36,28 @@ def save_data(users_df, log_df):
         users_df.to_excel(writer, sheet_name="Users", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
-    # Monthly backup
     month_name = calendar.month_name[datetime.now(TIMEZONE).month]
     backup_file = f"staff_logins_{month_name[:3]}.xlsx"
     with pd.ExcelWriter(backup_file, engine="openpyxl") as writer:
         users_df.to_excel(writer, sheet_name="Users", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
-users_df = load_data("Users")
-log_df = load_data("Login_Log")
+# Members data load/save
+def load_members():
+    if os.path.exists(MEMBER_FILE):
+        return pd.read_excel(MEMBER_FILE)
+    else:
+        return pd.DataFrame(columns=["Name", "Membership_Type", "Start_Date", "End_Date"])
+
+def save_members(df):
+    df.to_excel(MEMBER_FILE, index=False)
 
 # ===================================
 # DEFAULT ACCOUNTS
 # ===================================
+users_df = load_data("Users")
+log_df = load_data("Login_Log")
+
 DEFAULT_OWNER = "owner"
 DEFAULT_PASS = "gym123"
 
@@ -74,10 +84,10 @@ def check_password(password, hashed):
 # ===================================
 # APP LAYOUT
 # ===================================
-st.title("🏋️ Gym Login System")
+st.title("🏋️ Gym Management System")
 st.markdown("### For Owner and Staff Only")
 
-menu = st.sidebar.radio("Menu", ["Login", "Add Staff (Owner Only)"])
+menu = st.sidebar.radio("Menu", ["Login", "Add Staff (Owner Only)", "Manage Members"])
 
 # ===================================
 # LOGIN SECTION
@@ -131,13 +141,11 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
     # OWNER DASHBOARD
     if role == "owner":
         st.subheader("📋 Staff and Owner Logins")
-        # ✅ Show only Username and Password
         st.dataframe(users_df[["Username", "Password"]])
 
         st.subheader("📅 Login History")
         st.dataframe(log_df.sort_values("Login_Time", ascending=False))
 
-    # STAFF DASHBOARD
     elif role == "staff":
         st.subheader("📅 Your Login History")
         staff_logs = log_df[log_df["Username"] == username]
@@ -164,3 +172,44 @@ if menu == "Add Staff (Owner Only)":
             users_df = pd.concat([users_df, new_staff], ignore_index=True)
             save_data(users_df, log_df)
             st.success(f"✅ Staff account created for '{username}'!")
+
+# ===================================
+# MANAGE MEMBERS
+# ===================================
+if menu == "Manage Members":
+    st.subheader("💪 Gym Members Management")
+
+    members_df = load_members()
+
+    # Add New Member
+    with st.expander("➕ Add New Member"):
+        name = st.text_input("Member Name")
+        membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Half-Yearly", "Yearly"])
+        start_date = st.date_input("Start Date", datetime.now().date())
+        end_date = st.date_input("End Date", datetime.now().date() + timedelta(days=30))
+
+        if st.button("Add Member"):
+            new_member = pd.DataFrame([{
+                "Name": name,
+                "Membership_Type": membership_type,
+                "Start_Date": start_date,
+                "End_Date": end_date
+            }])
+            members_df = pd.concat([members_df, new_member], ignore_index=True)
+            save_members(members_df)
+            st.success(f"✅ Member '{name}' added successfully!")
+
+    # Show all members
+    st.markdown("### 🧾 Current Members")
+    st.dataframe(members_df)
+
+    # Show expiring soon (within 7 days)
+    if not members_df.empty:
+        members_df["End_Date"] = pd.to_datetime(members_df["End_Date"])
+        today = datetime.now().date()
+        upcoming = members_df[members_df["End_Date"].dt.date <= today + timedelta(days=7)]
+        upcoming = upcoming[members_df["End_Date"].dt.date >= today]
+
+        if not upcoming.empty:
+            # Display alert on top right (using Streamlit notification)
+            st.toast(f"⚠️ {len(upcoming)} memberships expiring soon!", icon="⏰")
