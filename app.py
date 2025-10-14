@@ -53,6 +53,7 @@ def clean_staff_df(df):
     df["Username"] = df["Username"].astype(str)
     df["Role"] = df["Role"].astype(str)
     df["Added_On"] = pd.to_datetime(df["Added_On"], errors="coerce")
+    df["Password"] = df["Password"].astype(str)
     return df
 
 # ---------- FILE STRUCTURE ----------
@@ -70,7 +71,7 @@ if "amith" not in st.session_state["staff_df"]["Username"].values:
     default_owner_pw = bcrypt.hashpw("password".encode(), bcrypt.gensalt())
     st.session_state["staff_df"] = pd.concat([
         st.session_state["staff_df"],
-        pd.DataFrame([{"Username": "amith", "Password": default_owner_pw, "Role": "Owner", "Added_On": datetime.now(TIMEZONE)}])
+        pd.DataFrame([{"Username": "amith", "Password": default_owner_pw.decode(), "Role": "Owner", "Added_On": datetime.now(TIMEZONE)}])
     ], ignore_index=True)
     save_excel(st.session_state["staff_df"], STAFF_FILE)
 
@@ -83,8 +84,7 @@ def verify_user(username, password):
     user_row = st.session_state["staff_df"][st.session_state["staff_df"]["Username"] == username]
     if not user_row.empty:
         hashed_pw = user_row.iloc[0]["Password"]
-        if isinstance(hashed_pw, str):
-            hashed_pw = hashed_pw.encode()
+        hashed_pw = hashed_pw.encode()  # convert string → bytes
         if bcrypt.checkpw(password.encode(), hashed_pw):
             return True
     return False
@@ -139,7 +139,7 @@ if st.session_state.get("logged_in"):
                 if name.strip() == "":
                     st.warning("Member name cannot be empty!")
                 else:
-                    # Check if member already exists
+                    # Check if member exists
                     idx = st.session_state["members_df"][st.session_state["members_df"]["Name"] == name].index
                     if not idx.empty:
                         # Update existing member
@@ -162,6 +162,7 @@ if st.session_state.get("logged_in"):
                         }])
                         st.session_state["members_df"] = pd.concat([st.session_state["members_df"], new_entry], ignore_index=True)
                         st.success(f"Member **{name}** added successfully!")
+
                     st.session_state["members_df"] = clean_members_df(st.session_state["members_df"])
                     save_excel(st.session_state["members_df"], MEMBER_FILE)
 
@@ -191,7 +192,7 @@ if st.session_state.get("logged_in"):
                         hashed_pw = bcrypt.hashpw(staff_password.encode(), bcrypt.gensalt())
                         new_row = pd.DataFrame([{
                             "Username": new_staff,
-                            "Password": hashed_pw,
+                            "Password": hashed_pw.decode(),  # store as string
                             "Role": staff_role,
                             "Added_On": datetime.now(TIMEZONE)
                         }])
