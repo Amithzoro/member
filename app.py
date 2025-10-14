@@ -121,9 +121,9 @@ if st.sidebar.button("Staff Login"):
         st.error("Staff username not found")
 
 # ---------- AFTER LOGIN ----------
-if st.session_state.get("logged_in"):
-    user = st.session_state["username"]
-    role = st.session_state["role"]
+if st.session_state.get("logged_in", False):
+    user = st.session_state.get("username", "")
+    role = st.session_state.get("role", "")
 
     # -------- Membership Expiry Alert --------
     st.markdown("### ⚠️ Membership Expiry Alerts")
