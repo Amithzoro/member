@@ -16,7 +16,7 @@ st.title("💪 Gym Management System")
 
 # ---------- USERS ----------
 # Owner credentials: username "amith", password "password"
-# Demo staff credentials remain for testing: username "staff", password "staff@123"
+# Demo staff: username "staff", password "staff@123"
 USERS = {
     "amith": bcrypt.hashpw("password".encode(), bcrypt.gensalt()),
     "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
@@ -45,8 +45,11 @@ def save_excel(df, path):
 member_cols = ["Name", "Membership_Type", "Start_Date", "End_Date", "Added_By", "Added_On"]
 staff_cols = ["Username", "Role", "Added_On"]
 
-members_df = load_excel(MEMBER_FILE, member_cols)
-staff_df = load_excel(STAFF_FILE, staff_cols)
+# Load excel files into session_state to prevent errors after reruns
+if "members_df" not in st.session_state:
+    st.session_state["members_df"] = load_excel(MEMBER_FILE, member_cols)
+if "staff_df" not in st.session_state:
+    st.session_state["staff_df"] = load_excel(STAFF_FILE, staff_cols)
 
 # ---------- LOGIN ----------
 st.sidebar.header("🔐 Login")
@@ -74,8 +77,8 @@ if st.session_state.get("logged_in"):
     # -------- Membership Expiry Alert --------
     st.markdown("### ⚠️ Membership Expiry Alerts")
     today = datetime.now(TIMEZONE).date()
-    expiring = members_df[
-        pd.to_datetime(members_df["End_Date"], errors='coerce').dt.date.between(today, today + timedelta(days=5))
+    expiring = st.session_state["members_df"][
+        pd.to_datetime(st.session_state["members_df"]["End_Date"], errors='coerce').dt.date.between(today, today + timedelta(days=5))
     ]
     if not expiring.empty:
         for _, row in expiring.iterrows():
@@ -113,22 +116,18 @@ if st.session_state.get("logged_in"):
                         "Added_By": user,
                         "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                     }])
-                    members_df = pd.concat([members_df, new_entry], ignore_index=True)
-                    save_excel(members_df, MEMBER_FILE)
-                    # show a temporary toast and refresh so views update immediately
-                    try:
-                        st.toast(f"Member {name} added successfully!", icon="💪")
-                    except Exception:
-                        st.success(f"Member {name} added successfully!")
-                    st.experimental_rerun()
+                    # Append to session_state
+                    st.session_state["members_df"] = pd.concat([st.session_state["members_df"], new_entry], ignore_index=True)
+                    save_excel(st.session_state["members_df"], MEMBER_FILE)
+                    st.success(f"Member **{name}** added successfully!")
 
     # -------- VIEW MEMBERS --------
     with tabs[1]:
         st.subheader("Your Added Members")
         if user == "amith":  # owner
-            st.dataframe(members_df, use_container_width=True)
+            st.dataframe(st.session_state["members_df"], use_container_width=True)
         else:
-            staff_members = members_df[members_df["Added_By"] == user]
+            staff_members = st.session_state["members_df"][st.session_state["members_df"]["Added_By"] == user]
             st.dataframe(staff_members, use_container_width=True)
 
     # -------- STAFF MANAGEMENT (OWNER ONLY) --------
@@ -142,7 +141,7 @@ if st.session_state.get("logged_in"):
                 if add_staff:
                     if new_staff.strip() == "":
                         st.warning("Staff username cannot be empty!")
-                    elif new_staff in staff_df["Username"].values:
+                    elif new_staff in st.session_state["staff_df"]["Username"].values:
                         st.warning("Staff username already exists!")
                     else:
                         new_row = pd.DataFrame([{
@@ -150,15 +149,11 @@ if st.session_state.get("logged_in"):
                             "Role": role,
                             "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                         }])
-                        staff_df = pd.concat([staff_df, new_row], ignore_index=True)
-                        save_excel(staff_df, STAFF_FILE)
-                        try:
-                            st.toast(f"Staff {new_staff} added successfully!", icon="✅")
-                        except Exception:
-                            st.success(f"Staff {new_staff} added successfully!")
-                        st.experimental_rerun()
+                        st.session_state["staff_df"] = pd.concat([st.session_state["staff_df"], new_row], ignore_index=True)
+                        save_excel(st.session_state["staff_df"], STAFF_FILE)
+                        st.success(f"Staff **{new_staff}** added successfully!")
 
-            st.dataframe(staff_df, use_container_width=True)
+            st.dataframe(st.session_state["staff_df"], use_container_width=True)
         else:
             st.info("You don’t have access to this section.")
 
