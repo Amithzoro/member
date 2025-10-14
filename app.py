@@ -16,8 +16,8 @@ st.title("💪 Gym Management System")
 
 # ---------- USERS ----------
 USERS = {
-    "amith": bcrypt.hashpw("password".encode(), bcrypt.gensalt()),
-    "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
+    "amith": bcrypt.hashpw("password".encode(), bcrypt.gensalt()),  # Owner
+    "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())  # Staff
 }
 
 # ---------- SESSION STATE INIT ----------
@@ -102,10 +102,12 @@ if st.session_state.get("logged_in"):
         st.subheader("Add New Gym Member")
         with st.form("add_member_form"):
             name = st.text_input("Member Name")
-            membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"])
+            membership_type = st.selectbox("Membership Type", ["Tour (1 Day)", "Monthly", "Quarterly", "Yearly"])
             amount = st.number_input("Amount (₹)", min_value=0, step=1)
             start_date = datetime.now(TIMEZONE).date()
-            if membership_type == "Monthly":
+            if membership_type == "Tour (1 Day)":
+                end_date = start_date + timedelta(days=1)
+            elif membership_type == "Monthly":
                 end_date = start_date + timedelta(days=30)
             elif membership_type == "Quarterly":
                 end_date = start_date + timedelta(days=90)
@@ -120,9 +122,9 @@ if st.session_state.get("logged_in"):
                     new_entry = pd.DataFrame([{
                         "Name": name,
                         "Membership_Type": membership_type,
-                        "Start_Date": start_date,
-                        "End_Date": end_date,
-                        "Amount": amount,
+                        "Start_Date": pd.to_datetime(start_date),
+                        "End_Date": pd.to_datetime(end_date),
+                        "Amount": float(amount),
                         "Added_By": user,
                         "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                     }])
