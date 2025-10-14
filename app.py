@@ -6,191 +6,135 @@ import pytz
 import os
 
 # ---------- CONFIG ----------
-st.set_page_config(page_title="Gym Management System", layout="wide")
 TIMEZONE = pytz.timezone("Asia/Kolkata")
-USERS_FILE = "staff_logins.xlsx"
 MEMBER_FILE = "gym_members.xlsx"
+STAFF_FILE = "staff_list.xlsx"
+
+# ---------- PAGE SETUP ----------
+st.set_page_config(page_title="Gym Member Manager", layout="wide")
+st.title("💪 Gym Management System")
+
+# ---------- USERS ----------
+USERS = {
+    "owner": bcrypt.hashpw("owner@123".encode(), bcrypt.gensalt()),
+    "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
+}
 
 # ---------- LOAD / SAVE ----------
-def load_users():
-    if os.path.exists(USERS_FILE):
-        try:
-            return pd.read_excel(USERS_FILE)
-        except:
-            pass
-    return pd.DataFrame(columns=["Username", "Password", "Role"])
+def load_excel(path, cols):
+    if os.path.exists(path):
+        df = pd.read_excel(path)
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+        return df[cols]
+    else:
+        return pd.DataFrame(columns=cols)
 
-def save_users(df):
-    df.to_excel(USERS_FILE, index=False)
+def save_excel(df, path):
+    df.to_excel(path, index=False)
 
-def load_members():
-    if os.path.exists(MEMBER_FILE):
-        return pd.read_excel(MEMBER_FILE)
-    return pd.DataFrame(columns=["Name", "Membership_Type", "Start_Date", "End_Date", "Added_By", "Added_On"])
+# ---------- FILE STRUCTURE ----------
+member_cols = ["Name", "Membership_Type", "Start_Date", "End_Date", "Added_By", "Added_On"]
+staff_cols = ["Username", "Role", "Added_On"]
 
-def save_members(df):
-    df.to_excel(MEMBER_FILE, index=False)
-
-# ---------- INITIAL SETUP ----------
-users_df = load_users()
-if "owner" not in users_df["Username"].values:
-    hashed = bcrypt.hashpw("gym123".encode(), bcrypt.gensalt()).decode()
-    users_df = pd.concat([users_df, pd.DataFrame([{
-        "Username": "owner",
-        "Password": hashed,
-        "Role": "owner"
-    }])], ignore_index=True)
-    save_users(users_df)
-
-# ---------- PASSWORD CHECK ----------
-def check_password(password, hashed):
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-    except Exception:
-        return False
+members_df = load_excel(MEMBER_FILE, member_cols)
+staff_df = load_excel(STAFF_FILE, staff_cols)
 
 # ---------- LOGIN ----------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+st.sidebar.header("🔐 Login")
+username = st.sidebar.text_input("Username")
+password = st.sidebar.text_input("Password", type="password")
 
-st.title("🏋️ Gym Management System")
+def verify_user(username, password):
+    if username in USERS and bcrypt.checkpw(password.encode(), USERS[username]):
+        return True
+    return False
 
-if not st.session_state.logged_in:
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        if username in users_df["Username"].values:
-            user = users_df[users_df["Username"] == username].iloc[0]
-            if check_password(password, user["Password"]):
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.session_state.role = user["Role"]
-                st.success(f"✅ Welcome, {username}!")
-                st.rerun()
-            else:
-                st.error("❌ Incorrect password")
-        else:
-            st.error("❌ User not found")
+if st.sidebar.button("Login"):
+    if verify_user(username, password):
+        st.session_state["logged_in"] = True
+        st.session_state["username"] = username
+        st.success(f"Welcome, {username.capitalize()}!")
+    else:
+        st.error("Invalid username or password.")
 
 # ---------- AFTER LOGIN ----------
-else:
-    username = st.session_state.username
-    role = st.session_state.role
+if st.session_state.get("logged_in"):
 
-    st.sidebar.success(f"Logged in as: {username} ({role})")
-    if st.sidebar.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
+    user = st.session_state["username"]
 
-    # Owner dashboard
-    if role == "owner":
-        tab1, tab2 = st.tabs(["👥 Staff Management", "💪 Member Management"])
-
-        # ---------- STAFF TAB ----------
-        with tab1:
-            st.subheader("👥 Manage Staff")
-            st.dataframe(users_df[["Username", "Role"]], use_container_width=True)
-
-            st.markdown("### ➕ Add New Staff")
-            new_user = st.text_input("Staff Username")
-            new_pass = st.text_input("Staff Password", type="password")
-            if st.button("Add Staff"):
-                if new_user and new_pass:
-                    if new_user in users_df["Username"].values:
-                        st.warning("⚠️ Username already exists.")
-                    else:
-                        hashed_pw = bcrypt.hashpw(new_pass.encode(), bcrypt.gensalt()).decode()
-                        new_row = pd.DataFrame([{"Username": new_user, "Password": hashed_pw, "Role": "staff"}])
-                        users_df = pd.concat([users_df, new_row], ignore_index=True)
-                        save_users(users_df)
-                        st.success(f"✅ Staff '{new_user}' added successfully!")
-                        st.rerun()
-                else:
-                    st.warning("Please enter both username and password.")
-
-        # ---------- MEMBER TAB ----------
-        with tab2:
-            members_df = load_members()
-            st.subheader("💪 Manage Members (Owner)")
-
-            name = st.text_input("Member Name")
-            membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Half-Yearly", "Yearly"])
-            start_date = st.date_input("Start Date", datetime.now().date())
-            end_date = st.date_input("End Date", datetime.now().date() + timedelta(days=30))
-
-            if st.button("Add Member"):
-                if name.strip():
-                    added_on = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-                    new_member = pd.DataFrame([{
-                        "Name": name,
-                        "Membership_Type": membership_type,
-                        "Start_Date": start_date,
-                        "End_Date": end_date,
-                        "Added_By": username,
-                        "Added_On": added_on
-                    }])
-                    members_df = pd.concat([members_df, new_member], ignore_index=True)
-                    save_members(members_df)
-                    st.success(f"✅ Member '{name}' added successfully!")
-                    st.rerun()
-                else:
-                    st.warning("Please enter a member name.")
-
-            st.markdown("### 🧾 Current Members")
-            st.dataframe(members_df, use_container_width=True)
-
-            # Expiring soon alert
-            if not members_df.empty:
-                members_df["End_Date"] = pd.to_datetime(members_df["End_Date"])
-                today = datetime.now().date()
-                expiring = members_df[
-                    (members_df["End_Date"].dt.date <= today + timedelta(days=7)) &
-                    (members_df["End_Date"].dt.date >= today)
-                ]
-                if not expiring.empty:
-                    expiring_names = ", ".join(expiring["Name"].tolist())
-                    st.toast(f"⚠️ Memberships expiring soon: {expiring_names}", icon="⏰")
-
-    # Staff dashboard
+    # Reminder for memberships ending soon
+    st.markdown("### ⚠️ Membership Expiry Alerts")
+    today = datetime.now(TIMEZONE).date()
+    expiring = members_df[
+        pd.to_datetime(members_df["End_Date"], errors='coerce').dt.date.between(today, today + timedelta(days=5))
+    ]
+    if not expiring.empty:
+        for _, row in expiring.iterrows():
+            st.warning(f"Member **{row['Name']}** membership ends on **{row['End_Date']}**")
     else:
-        st.header("💪 Add Members")
-        members_df = load_members()
+        st.info("No memberships nearing expiry.")
 
-        name = st.text_input("Member Name")
-        membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Half-Yearly", "Yearly"])
-        start_date = datetime.now().date()
-        end_date = start_date + timedelta(days=30)
+    tabs = st.tabs(["🏋️ Add Member", "📋 View Members", "👥 Staff (Owner Only)"])
 
-        if st.button("Add Member"):
-            if name.strip():
-                added_on = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-                new_member = pd.DataFrame([{
+    # ---------------- ADD MEMBER ----------------
+    with tabs[0]:
+        st.subheader("Add New Gym Member")
+        with st.form("add_member_form"):
+            name = st.text_input("Member Name")
+            membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"])
+            start_date = datetime.now(TIMEZONE).date()
+            if membership_type == "Monthly":
+                end_date = start_date + timedelta(days=30)
+            elif membership_type == "Quarterly":
+                end_date = start_date + timedelta(days=90)
+            else:
+                end_date = start_date + timedelta(days=365)
+
+            submitted = st.form_submit_button("➕ Add Member")
+            if submitted and name.strip() != "":
+                new_entry = pd.DataFrame([{
                     "Name": name,
                     "Membership_Type": membership_type,
                     "Start_Date": start_date,
                     "End_Date": end_date,
-                    "Added_By": username,
-                    "Added_On": added_on
+                    "Added_By": user,
+                    "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                 }])
-                members_df = pd.concat([members_df, new_member], ignore_index=True)
-                save_members(members_df)
-                st.success(f"✅ Member '{name}' added successfully!")
-                st.rerun()
-            else:
-                st.warning("Please enter a member name.")
+                members_df = pd.concat([members_df, new_entry], ignore_index=True)
+                save_excel(members_df, MEMBER_FILE)
+                st.success(f"Member **{name}** added successfully!")
 
-        st.markdown("### 🧾 Your Added Members")
-        st.dataframe(members_df[members_df["Added_By"] == username], use_container_width=True)
+    # ---------------- VIEW MEMBERS ----------------
+    with tabs[1]:
+        st.subheader("Your Added Members")
+        if user == "owner":
+            st.dataframe(members_df, use_container_width=True)
+        else:
+            staff_members = members_df[members_df["Added_By"] == user]
+            st.dataframe(staff_members, use_container_width=True)
 
-        # Alert for expiring memberships
-        if not members_df.empty:
-            members_df["End_Date"] = pd.to_datetime(members_df["End_Date"])
-            today = datetime.now().date()
-            expiring = members_df[
-                (members_df["End_Date"].dt.date <= today + timedelta(days=7)) &
-                (members_df["End_Date"].dt.date >= today)
-            ]
-            if not expiring.empty:
-                expiring_names = ", ".join(expiring["Name"].tolist())
-                st.toast(f"⚠️ Memberships expiring soon: {expiring_names}", icon="⏰")
+    # ---------------- STAFF MANAGEMENT (OWNER ONLY) ----------------
+    with tabs[2]:
+        if user == "owner":
+            st.subheader("Manage Staff Accounts")
+            with st.form("add_staff_form"):
+                new_staff = st.text_input("Staff Username")
+                role = st.selectbox("Role", ["Trainer", "Receptionist", "Manager"])
+                add_staff = st.form_submit_button("➕ Add Staff")
+                if add_staff and new_staff.strip() != "":
+                    new_row = pd.DataFrame([{
+                        "Username": new_staff,
+                        "Role": role,
+                        "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                    }])
+                    staff_df = pd.concat([staff_df, new_row], ignore_index=True)
+                    save_excel(staff_df, STAFF_FILE)
+                    st.success(f"Staff **{new_staff}** added successfully!")
+
+            st.dataframe(staff_df, use_container_width=True)
+        else:
+            st.info("You don’t have access to this section.")
+else:
+    st.info("👈 Please log in using the sidebar to continue.")
