@@ -15,12 +15,18 @@ st.set_page_config(page_title="Gym Member Manager", layout="wide")
 st.title("💪 Gym Management System")
 
 # ---------- USERS ----------
+# For demo purposes, passwords are hashed on each run
 USERS = {
     "owner": bcrypt.hashpw("owner@123".encode(), bcrypt.gensalt()),
     "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
 }
 
-# ---------- LOAD / SAVE ----------
+# ---------- SESSION STATE INIT ----------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["username"] = ""
+
+# ---------- LOAD / SAVE FUNCTIONS ----------
 def load_excel(path, cols):
     if os.path.exists(path):
         df = pd.read_excel(path)
@@ -64,7 +70,7 @@ if st.session_state.get("logged_in"):
 
     user = st.session_state["username"]
 
-    # Reminder for memberships ending soon
+    # -------- Membership Expiry Alert --------
     st.markdown("### ⚠️ Membership Expiry Alerts")
     today = datetime.now(TIMEZONE).date()
     expiring = members_df[
@@ -76,9 +82,10 @@ if st.session_state.get("logged_in"):
     else:
         st.info("No memberships nearing expiry.")
 
+    # -------- Tabs --------
     tabs = st.tabs(["🏋️ Add Member", "📋 View Members", "👥 Staff (Owner Only)"])
 
-    # ---------------- ADD MEMBER ----------------
+    # -------- ADD MEMBER --------
     with tabs[0]:
         st.subheader("Add New Gym Member")
         with st.form("add_member_form"):
@@ -93,20 +100,24 @@ if st.session_state.get("logged_in"):
                 end_date = start_date + timedelta(days=365)
 
             submitted = st.form_submit_button("➕ Add Member")
-            if submitted and name.strip() != "":
-                new_entry = pd.DataFrame([{
-                    "Name": name,
-                    "Membership_Type": membership_type,
-                    "Start_Date": start_date,
-                    "End_Date": end_date,
-                    "Added_By": user,
-                    "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-                }])
-                members_df = pd.concat([members_df, new_entry], ignore_index=True)
-                save_excel(members_df, MEMBER_FILE)
-                st.success(f"Member **{name}** added successfully!")
+            if submitted:
+                if name.strip() == "":
+                    st.warning("Member name cannot be empty!")
+                else:
+                    new_entry = pd.DataFrame([{
+                        "Name": name,
+                        "Membership_Type": membership_type,
+                        "Start_Date": start_date,
+                        "End_Date": end_date,
+                        "Added_By": user,
+                        "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                    }])
+                    members_df = pd.concat([members_df, new_entry], ignore_index=True)
+                    save_excel(members_df, MEMBER_FILE)
+                    st.toast(f"Member **{name}** added successfully!", icon="💪")
+                    st.experimental_rerun()
 
-    # ---------------- VIEW MEMBERS ----------------
+    # -------- VIEW MEMBERS --------
     with tabs[1]:
         st.subheader("Your Added Members")
         if user == "owner":
@@ -115,7 +126,7 @@ if st.session_state.get("logged_in"):
             staff_members = members_df[members_df["Added_By"] == user]
             st.dataframe(staff_members, use_container_width=True)
 
-    # ---------------- STAFF MANAGEMENT (OWNER ONLY) ----------------
+    # -------- STAFF MANAGEMENT (OWNER ONLY) --------
     with tabs[2]:
         if user == "owner":
             st.subheader("Manage Staff Accounts")
@@ -123,18 +134,25 @@ if st.session_state.get("logged_in"):
                 new_staff = st.text_input("Staff Username")
                 role = st.selectbox("Role", ["Trainer", "Receptionist", "Manager"])
                 add_staff = st.form_submit_button("➕ Add Staff")
-                if add_staff and new_staff.strip() != "":
-                    new_row = pd.DataFrame([{
-                        "Username": new_staff,
-                        "Role": role,
-                        "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-                    }])
-                    staff_df = pd.concat([staff_df, new_row], ignore_index=True)
-                    save_excel(staff_df, STAFF_FILE)
-                    st.success(f"Staff **{new_staff}** added successfully!")
+                if add_staff:
+                    if new_staff.strip() == "":
+                        st.warning("Staff username cannot be empty!")
+                    elif new_staff in staff_df["Username"].values:
+                        st.warning("Staff username already exists!")
+                    else:
+                        new_row = pd.DataFrame([{
+                            "Username": new_staff,
+                            "Role": role,
+                            "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+                        }])
+                        staff_df = pd.concat([staff_df, new_row], ignore_index=True)
+                        save_excel(staff_df, STAFF_FILE)
+                        st.toast(f"Staff **{new_staff}** added successfully!", icon="✅")
+                        st.experimental_rerun()
 
             st.dataframe(staff_df, use_container_width=True)
         else:
             st.info("You don’t have access to this section.")
+
 else:
     st.info("👈 Please log in using the sidebar to continue.")
