@@ -41,13 +41,24 @@ def load_excel(path, cols):
 def save_excel(df, path):
     df.to_excel(path, index=False)
 
+# ---------- CLEAN DATAFRAME FUNCTION ----------
+def clean_members_df(df):
+    """Ensure consistent types for PyArrow / Streamlit"""
+    df["Start_Date"] = pd.to_datetime(df["Start_Date"], errors="coerce")
+    df["End_Date"] = pd.to_datetime(df["End_Date"], errors="coerce")
+    df["Name"] = df["Name"].astype(str)
+    df["Membership_Type"] = df["Membership_Type"].astype(str)
+    df["Added_By"] = df["Added_By"].astype(str)
+    df["Added_On"] = pd.to_datetime(df["Added_On"], errors="coerce")
+    return df
+
 # ---------- FILE STRUCTURE ----------
 member_cols = ["Name", "Membership_Type", "Start_Date", "End_Date", "Added_By", "Added_On"]
 staff_cols = ["Username", "Role", "Added_On"]
 
-# Load excel files into session_state to prevent errors after reruns
+# Load excel files into session_state
 if "members_df" not in st.session_state:
-    st.session_state["members_df"] = load_excel(MEMBER_FILE, member_cols)
+    st.session_state["members_df"] = clean_members_df(load_excel(MEMBER_FILE, member_cols))
 if "staff_df" not in st.session_state:
     st.session_state["staff_df"] = load_excel(STAFF_FILE, staff_cols)
 
@@ -82,7 +93,7 @@ if st.session_state.get("logged_in"):
     ]
     if not expiring.empty:
         for _, row in expiring.iterrows():
-            st.warning(f"Member **{row['Name']}** membership ends on **{row['End_Date']}**")
+            st.warning(f"Member **{row['Name']}** membership ends on **{row['End_Date'].date()}**")
     else:
         st.info("No memberships nearing expiry.")
 
@@ -116,19 +127,18 @@ if st.session_state.get("logged_in"):
                         "Added_By": user,
                         "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                     }])
-                    # Append to session_state
                     st.session_state["members_df"] = pd.concat([st.session_state["members_df"], new_entry], ignore_index=True)
+                    st.session_state["members_df"] = clean_members_df(st.session_state["members_df"])
                     save_excel(st.session_state["members_df"], MEMBER_FILE)
                     st.success(f"Member **{name}** added successfully!")
 
     # -------- VIEW MEMBERS --------
     with tabs[1]:
         st.subheader("Your Added Members")
-        if user == "amith":  # owner
-            st.dataframe(st.session_state["members_df"], use_container_width=True)
-        else:
-            staff_members = st.session_state["members_df"][st.session_state["members_df"]["Added_By"] == user]
-            st.dataframe(staff_members, use_container_width=True)
+        df_to_show = st.session_state["members_df"]
+        if user != "amith":  # non-owner staff sees only their members
+            df_to_show = df_to_show[df_to_show["Added_By"] == user]
+        st.dataframe(df_to_show, use_container_width=True)
 
     # -------- STAFF MANAGEMENT (OWNER ONLY) --------
     with tabs[2]:
