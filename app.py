@@ -131,7 +131,8 @@ if "logged_in" in st.session_state and st.session_state["logged_in"]:
     # OWNER DASHBOARD
     if role == "owner":
         st.subheader("📋 Staff and Owner Logins")
-        st.dataframe(users_df)
+        # ✅ Show only Username and Password
+        st.dataframe(users_df[["Username", "Password"]])
 
         st.subheader("📅 Login History")
         st.dataframe(log_df.sort_values("Login_Time", ascending=False))
