@@ -15,9 +15,10 @@ st.set_page_config(page_title="Gym Member Manager", layout="wide")
 st.title("💪 Gym Management System")
 
 # ---------- USERS ----------
-# For demo purposes, passwords are hashed on each run
+# Owner credentials: username "amith", password "password"
+# Demo staff credentials remain for testing: username "staff", password "staff@123"
 USERS = {
-    "owner": bcrypt.hashpw("owner@123".encode(), bcrypt.gensalt()),
+    "amith": bcrypt.hashpw("password".encode(), bcrypt.gensalt()),
     "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
 }
 
@@ -114,13 +115,17 @@ if st.session_state.get("logged_in"):
                     }])
                     members_df = pd.concat([members_df, new_entry], ignore_index=True)
                     save_excel(members_df, MEMBER_FILE)
-                    st.toast(f"Member **{name}** added successfully!", icon="💪")
+                    # show a temporary toast and refresh so views update immediately
+                    try:
+                        st.toast(f"Member {name} added successfully!", icon="💪")
+                    except Exception:
+                        st.success(f"Member {name} added successfully!")
                     st.experimental_rerun()
 
     # -------- VIEW MEMBERS --------
     with tabs[1]:
         st.subheader("Your Added Members")
-        if user == "owner":
+        if user == "amith":  # owner
             st.dataframe(members_df, use_container_width=True)
         else:
             staff_members = members_df[members_df["Added_By"] == user]
@@ -128,7 +133,7 @@ if st.session_state.get("logged_in"):
 
     # -------- STAFF MANAGEMENT (OWNER ONLY) --------
     with tabs[2]:
-        if user == "owner":
+        if user == "amith":
             st.subheader("Manage Staff Accounts")
             with st.form("add_staff_form"):
                 new_staff = st.text_input("Staff Username")
@@ -147,7 +152,10 @@ if st.session_state.get("logged_in"):
                         }])
                         staff_df = pd.concat([staff_df, new_row], ignore_index=True)
                         save_excel(staff_df, STAFF_FILE)
-                        st.toast(f"Staff **{new_staff}** added successfully!", icon="✅")
+                        try:
+                            st.toast(f"Staff {new_staff} added successfully!", icon="✅")
+                        except Exception:
+                            st.success(f"Staff {new_staff} added successfully!")
                         st.experimental_rerun()
 
             st.dataframe(staff_df, use_container_width=True)
