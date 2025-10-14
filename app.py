@@ -15,8 +15,6 @@ st.set_page_config(page_title="Gym Member Manager", layout="wide")
 st.title("💪 Gym Management System")
 
 # ---------- USERS ----------
-# Owner credentials: username "amith", password "password"
-# Demo staff: username "staff", password "staff@123"
 USERS = {
     "amith": bcrypt.hashpw("password".encode(), bcrypt.gensalt()),
     "staff": bcrypt.hashpw("staff@123".encode(), bcrypt.gensalt())
@@ -43,20 +41,19 @@ def save_excel(df, path):
 
 # ---------- CLEAN DATAFRAME FUNCTION ----------
 def clean_members_df(df):
-    """Ensure consistent types for PyArrow / Streamlit"""
     df["Start_Date"] = pd.to_datetime(df["Start_Date"], errors="coerce")
     df["End_Date"] = pd.to_datetime(df["End_Date"], errors="coerce")
     df["Name"] = df["Name"].astype(str)
     df["Membership_Type"] = df["Membership_Type"].astype(str)
     df["Added_By"] = df["Added_By"].astype(str)
     df["Added_On"] = pd.to_datetime(df["Added_On"], errors="coerce")
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
     return df
 
 # ---------- FILE STRUCTURE ----------
-member_cols = ["Name", "Membership_Type", "Start_Date", "End_Date", "Added_By", "Added_On"]
+member_cols = ["Name", "Membership_Type", "Start_Date", "End_Date", "Amount", "Added_By", "Added_On"]
 staff_cols = ["Username", "Role", "Added_On"]
 
-# Load excel files into session_state
 if "members_df" not in st.session_state:
     st.session_state["members_df"] = clean_members_df(load_excel(MEMBER_FILE, member_cols))
 if "staff_df" not in st.session_state:
@@ -106,6 +103,7 @@ if st.session_state.get("logged_in"):
         with st.form("add_member_form"):
             name = st.text_input("Member Name")
             membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"])
+            amount = st.number_input("Amount (₹)", min_value=0, step=1)
             start_date = datetime.now(TIMEZONE).date()
             if membership_type == "Monthly":
                 end_date = start_date + timedelta(days=30)
@@ -124,6 +122,7 @@ if st.session_state.get("logged_in"):
                         "Membership_Type": membership_type,
                         "Start_Date": start_date,
                         "End_Date": end_date,
+                        "Amount": amount,
                         "Added_By": user,
                         "Added_On": datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                     }])
@@ -136,7 +135,7 @@ if st.session_state.get("logged_in"):
     with tabs[1]:
         st.subheader("Your Added Members")
         df_to_show = st.session_state["members_df"]
-        if user != "amith":  # non-owner staff sees only their members
+        if user != "amith":
             df_to_show = df_to_show[df_to_show["Added_By"] == user]
         st.dataframe(df_to_show, use_container_width=True)
 
