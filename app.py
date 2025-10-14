@@ -14,16 +14,17 @@ STAFF_FILE = "staff_list.xlsx"
 st.set_page_config(page_title="Gym Member Manager", layout="wide")
 st.title("💪 Gym Management System")
 
-# ---------- SESSION STATE INIT ----------
+# ---------- SESSION STATE ----------
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
     st.session_state["username"] = ""
+    st.session_state["role"] = ""
 if "members_df" not in st.session_state:
     st.session_state["members_df"] = pd.DataFrame()
 if "staff_df" not in st.session_state:
     st.session_state["staff_df"] = pd.DataFrame()
 
-# ---------- LOAD / SAVE FUNCTIONS ----------
+# ---------- LOAD / SAVE ----------
 def load_excel(path, cols):
     if os.path.exists(path):
         df = pd.read_excel(path)
@@ -37,7 +38,7 @@ def load_excel(path, cols):
 def save_excel(df, path):
     df.to_excel(path, index=False)
 
-# ---------- CLEAN DATAFRAME FUNCTIONS ----------
+# ---------- CLEAN DATAFRAME ----------
 def clean_members_df(df):
     df["Start_Date"] = pd.to_datetime(df["Start_Date"], errors="coerce")
     df["End_Date"] = pd.to_datetime(df["End_Date"], errors="coerce")
@@ -75,32 +76,54 @@ if "amith" not in st.session_state["staff_df"]["Username"].values:
     ], ignore_index=True)
     save_excel(st.session_state["staff_df"], STAFF_FILE)
 
-# ---------- LOGIN ----------
-st.sidebar.header("🔐 Login")
-username = st.sidebar.text_input("Username")
-password = st.sidebar.text_input("Password", type="password")
+# ---------- TWO LOGIN OPTIONS ----------
+st.sidebar.header("🔐 Owner Login")
+owner_username = st.sidebar.text_input("Owner Username", key="owner_user")
+owner_password = st.sidebar.text_input("Owner Password", type="password", key="owner_pw")
+st.sidebar.header("🔐 Staff Login")
+staff_username = st.sidebar.text_input("Staff Username", key="staff_user")
+staff_password = st.sidebar.text_input("Staff Password", type="password", key="staff_pw")
 
-def verify_user(username, password):
-    user_row = st.session_state["staff_df"][st.session_state["staff_df"]["Username"] == username]
+# ---------- OWNER LOGIN ----------
+if st.sidebar.button("Owner Login"):
+    user_row = st.session_state["staff_df"][
+        (st.session_state["staff_df"]["Username"] == owner_username) & 
+        (st.session_state["staff_df"]["Role"] == "Owner")
+    ]
     if not user_row.empty:
-        hashed_pw = user_row.iloc[0]["Password"]
-        hashed_pw = hashed_pw.encode()  # convert string → bytes
-        if bcrypt.checkpw(password.encode(), hashed_pw):
-            return True
-    return False
-
-if st.sidebar.button("Login"):
-    if verify_user(username, password):
-        st.session_state["logged_in"] = True
-        st.session_state["username"] = username
-        st.success(f"Welcome, {username.capitalize()}!")
+        hashed_pw = user_row.iloc[0]["Password"].encode()
+        if bcrypt.checkpw(owner_password.encode(), hashed_pw):
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = owner_username
+            st.session_state["role"] = "Owner"
+            st.success(f"Welcome Owner: {owner_username}")
+        else:
+            st.error("Invalid Owner password")
     else:
-        st.error("Invalid username or password.")
+        st.error("Owner username not found")
+
+# ---------- STAFF LOGIN ----------
+if st.sidebar.button("Staff Login"):
+    user_row = st.session_state["staff_df"][
+        (st.session_state["staff_df"]["Username"] == staff_username) & 
+        (st.session_state["staff_df"]["Role"] != "Owner")
+    ]
+    if not user_row.empty:
+        hashed_pw = user_row.iloc[0]["Password"].encode()
+        if bcrypt.checkpw(staff_password.encode(), hashed_pw):
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = staff_username
+            st.session_state["role"] = user_row.iloc[0]["Role"]
+            st.success(f"Welcome Staff: {staff_username}")
+        else:
+            st.error("Invalid Staff password")
+    else:
+        st.error("Staff username not found")
 
 # ---------- AFTER LOGIN ----------
 if st.session_state.get("logged_in"):
     user = st.session_state["username"]
-    role = st.session_state["staff_df"].loc[st.session_state["staff_df"]["Username"]==user, "Role"].values[0]
+    role = st.session_state["role"]
 
     # -------- Membership Expiry Alert --------
     st.markdown("### ⚠️ Membership Expiry Alerts")
@@ -139,17 +162,14 @@ if st.session_state.get("logged_in"):
                 if name.strip() == "":
                     st.warning("Member name cannot be empty!")
                 else:
-                    # Check if member exists
                     idx = st.session_state["members_df"][st.session_state["members_df"]["Name"] == name].index
                     if not idx.empty:
-                        # Update existing member
                         st.session_state["members_df"].loc[idx, ["Membership_Type","Start_Date","End_Date","Amount","Last_Updated"]] = [
                             membership_type, pd.to_datetime(start_date), pd.to_datetime(end_date), float(amount),
                             datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
                         ]
                         st.success(f"Member **{name}** updated successfully!")
                     else:
-                        # Add new member
                         new_entry = pd.DataFrame([{
                             "Name": name,
                             "Membership_Type": membership_type,
@@ -192,7 +212,7 @@ if st.session_state.get("logged_in"):
                         hashed_pw = bcrypt.hashpw(staff_password.encode(), bcrypt.gensalt())
                         new_row = pd.DataFrame([{
                             "Username": new_staff,
-                            "Password": hashed_pw.decode(),  # store as string
+                            "Password": hashed_pw.decode(),
                             "Role": staff_role,
                             "Added_On": datetime.now(TIMEZONE)
                         }])
