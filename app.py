@@ -48,7 +48,6 @@ def save_data(users_df, members_df):
     df_users = users_df.copy()
     df_members = members_df.copy()
 
-    # Ensure Join_Date and Expiry_Date are datetime before formatting
     for col in ["Join_Date", "Expiry_Date"]:
         if col in df_members.columns:
             df_members[col] = pd.to_datetime(df_members[col], errors='coerce')
@@ -76,7 +75,7 @@ if "logged_in" not in st.session_state:
 
 st.title("🏋️ Gym Membership Management")
 
-# --- LOGIN WITHOUT PASSWORD ---
+# --- LOGIN ---
 username = st.text_input("Username")
 if st.button("Login"):
     uname = str(username).strip()
@@ -88,20 +87,26 @@ if st.button("Login"):
         st.session_state.role = user.iloc[0]["Role"]
         st.success(f"✅ Logged in as {st.session_state.role}")
 
-# ================= MAIN APP AFTER LOGIN =================
+# ================= MAIN APP =================
 if st.session_state.logged_in:
     role = st.session_state.role
     st.subheader(f"Welcome, {role}!")
 
     # --- Sidebar reminders ---
     reminder_placeholder = st.sidebar.empty()
+
     def show_expiring_members():
         now = datetime.now(TIMEZONE)
         df = members_df.copy()
+
+        # Ensure Expiry_Date is datetime
         df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors='coerce')
         df = df[df["Expiry_Date"].notna()]
+
+        # Mask for next 7 days
         mask = df["Expiry_Date"].apply(lambda x: now <= x <= now + timedelta(days=7))
         soon_expiring = df[mask]
+
         reminder_placeholder.empty()
         if not soon_expiring.empty:
             reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
