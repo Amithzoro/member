@@ -15,7 +15,6 @@ def load_data():
     if not os.path.exists(EXCEL_FILE):
         users_df = pd.DataFrame({
             "Username": ["vineeth", "staff1"],
-            "Password": ["panda@2006", "staff123"],
             "Role": ["Owner", "Staff"]
         })
         members_df = pd.DataFrame(columns=[
@@ -35,10 +34,9 @@ def load_data():
             if col not in members_df.columns:
                 members_df[col] = ""
 
-    # Clean up users_df for login
+    # Clean usernames
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
-    users_df["Password"] = users_df["Password"].str.strip()
 
     # Parse date columns
     if "Join_Date" in members_df.columns:
@@ -78,21 +76,21 @@ if "logged_in" not in st.session_state:
 
 st.title("🏋️ Gym Membership Management")
 
+# --- LOGIN WITHOUT PASSWORD ---
 username = st.text_input("Username")
-password = st.text_input("Password", type="password")
 
 if st.button("Login"):
     uname = str(username).strip()
-    pwd = str(password).strip()
-    user = users_df[(users_df["Username"] == uname) & (users_df["Password"] == pwd)]
+    user = users_df[users_df["Username"] == uname]
+
     if user.empty:
-        st.error("❌ Invalid credentials!")
+        st.error("❌ Invalid username!")
     else:
         st.session_state.logged_in = True
         st.session_state.role = user.iloc[0]["Role"]
         st.success(f"✅ Logged in as {st.session_state.role}")
 
-# Only show main app if logged in
+# --- MAIN APP AFTER LOGIN ---
 if st.session_state.logged_in:
     role = st.session_state.role
     st.subheader(f"Welcome, {role}!")
