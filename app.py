@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import bcrypt
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import os
 
@@ -13,14 +13,14 @@ TIMEZONE = pytz.timezone("Asia/Kolkata")
 EXCEL_FILE = "gym_data.xlsx"
 
 # -----------------------------
-# Initialize default data
+# Initialize Default Data
 # -----------------------------
 if not os.path.exists(EXCEL_FILE):
     users_df = pd.DataFrame([
         {"Username": "vineeth", "Password": bcrypt.hashpw("Panda@2006".encode(), bcrypt.gensalt()).decode(), "Role": "owner"},
         {"Username": "amith", "Password": bcrypt.hashpw("Amith@123".encode(), bcrypt.gensalt()).decode(), "Role": "staff"},
     ])
-    members_df = pd.DataFrame(columns=["Full_Name", "Phone", "Membership_Type", "Added_By", "Added_On"])
+    members_df = pd.DataFrame(columns=["Full_Name", "Phone", "Membership_Type", "Join_Date", "Expiry_Date", "Added_By"])
     log_df = pd.DataFrame(columns=["Username", "Role", "Login_Time", "Date"])
 
     with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
@@ -29,7 +29,7 @@ if not os.path.exists(EXCEL_FILE):
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
 # -----------------------------
-# Load Data
+# Load / Save Functions
 # -----------------------------
 def load_data():
     xls = pd.ExcelFile(EXCEL_FILE)
@@ -38,11 +38,7 @@ def load_data():
     log_df = pd.read_excel(xls, "Login_Log")
     return users_df, members_df, log_df
 
-# -----------------------------
-# Save Data
-# -----------------------------
 def save_data(users_df, members_df, log_df):
-    # Convert to string to avoid Excel value type errors
     users_df = users_df.astype(str)
     members_df = members_df.astype(str)
     log_df = log_df.astype(str)
@@ -52,7 +48,7 @@ def save_data(users_df, members_df, log_df):
         members_df.to_excel(writer, sheet_name="Members", index=False)
         log_df.to_excel(writer, sheet_name="Login_Log", index=False)
 
-    # Monthly auto-backup
+    # Monthly backup
     month_name = calendar.month_name[datetime.now(TIMEZONE).month]
     backup_file = f"gym_data_{month_name[:3]}.xlsx"
     with pd.ExcelWriter(backup_file, engine="openpyxl") as writer:
@@ -72,14 +68,40 @@ def login(username, password, users_df):
     return None
 
 # -----------------------------
+# Calculate Expiry
+# -----------------------------
+def get_expiry_date(join_date, membership_type):
+    if membership_type == "Monthly":
+        return join_date + timedelta(days=30)
+    elif membership_type == "Quarterly":
+        return join_date + timedelta(days=90)
+    elif membership_type == "Yearly":
+        return join_date + timedelta(days=365)
+    else:
+        return join_date
+
+# -----------------------------
 # Streamlit UI
 # -----------------------------
-st.set_page_config(page_title="Gym Manager", page_icon="💪", layout="centered")
-
+st.set_page_config(page_title="Gym Management", page_icon="💪", layout="wide")
 st.title("🏋️‍♂️ Gym Management System")
 
 users_df, members_df, log_df = load_data()
 
+# Sidebar (Reminders)
+st.sidebar.header("🔔 Expiry Reminders")
+if not members_df.empty:
+    members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+    soon_expiring = members_df[members_df["Expiry_Date"] <= datetime.now(TIMEZONE) + timedelta(days=7)]
+    if soon_expiring.empty:
+        st.sidebar.success("✅ No memberships expiring soon.")
+    else:
+        for _, row in soon_expiring.iterrows():
+            st.sidebar.warning(f"{row['Full_Name']} ({row['Membership_Type']})\nExpires on: {row['Expiry_Date'].date()}")
+else:
+    st.sidebar.info("No members yet.")
+
+# Tabs
 tab_login, tab_members, tab_logs = st.tabs(["🔑 Login", "👥 Members", "📘 Login Records"])
 
 # -----------------------------
@@ -107,7 +129,7 @@ with tab_login:
             log_df = pd.concat([log_df, new_entry], ignore_index=True)
             save_data(users_df, members_df, log_df)
 
-            st.success(f"✅ Welcome {username}! Logged in as {role.upper()} at {time_str}")
+            st.success(f"✅ Welcome {username}! Logged in as {role.upper()}.")
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
             st.session_state["role"] = role
@@ -119,23 +141,26 @@ with tab_login:
 # -----------------------------
 with tab_members:
     if "logged_in" in st.session_state and st.session_state["logged_in"]:
-        st.subheader("Add New Member")
+        role = st.session_state["role"]
+        username = st.session_state["username"]
 
+        st.subheader("➕ Add New Member")
         full_name = st.text_input("Full Name")
         phone = st.text_input("Phone Number")
         membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"])
 
         if st.button("Add Member"):
             if full_name and phone:
-                now = datetime.now(TIMEZONE).strftime("%Y-%m-%d %I:%M:%S %p")
-                added_by = st.session_state["username"]
+                join_date = datetime.now(TIMEZONE)
+                expiry_date = get_expiry_date(join_date, membership_type)
 
                 new_member = pd.DataFrame([{
                     "Full_Name": full_name,
                     "Phone": phone,
                     "Membership_Type": membership_type,
-                    "Added_By": added_by,
-                    "Added_On": now
+                    "Join_Date": join_date.strftime("%Y-%m-%d"),
+                    "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
+                    "Added_By": username
                 }])
 
                 members_df = pd.concat([members_df, new_member], ignore_index=True)
@@ -147,8 +172,34 @@ with tab_members:
         st.divider()
         st.subheader("📋 Member List")
         st.dataframe(members_df)
+
+        # Only owners can edit/delete
+        if role == "owner" and not members_df.empty:
+            st.subheader("✏️ Edit or Delete Members")
+            member_names = members_df["Full_Name"].tolist()
+            selected = st.selectbox("Select Member to Edit/Delete", member_names)
+
+            member_data = members_df[members_df["Full_Name"] == selected].iloc[0]
+
+            new_phone = st.text_input("Phone", member_data["Phone"])
+            new_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"], index=["Monthly", "Quarterly", "Yearly"].index(member_data["Membership_Type"]))
+
+            if st.button("Update Member"):
+                idx = members_df[members_df["Full_Name"] == selected].index[0]
+                members_df.at[idx, "Phone"] = new_phone
+                members_df.at[idx, "Membership_Type"] = new_type
+                new_expiry = get_expiry_date(datetime.strptime(members_df.at[idx, "Join_Date"], "%Y-%m-%d"), new_type)
+                members_df.at[idx, "Expiry_Date"] = new_expiry.strftime("%Y-%m-%d")
+                save_data(users_df, members_df, log_df)
+                st.success("✅ Member updated successfully!")
+
+            if st.button("❌ Delete Member"):
+                members_df = members_df[members_df["Full_Name"] != selected]
+                save_data(users_df, members_df, log_df)
+                st.warning(f"🗑️ Member '{selected}' deleted.")
+
     else:
-        st.warning("Please log in first to access this section.")
+        st.warning("Please log in first to manage members.")
 
 # -----------------------------
 # LOGIN RECORD TAB
