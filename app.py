@@ -29,7 +29,6 @@ def load_data():
         users_df = pd.read_excel(xls, "Users")
         members_df = pd.read_excel(xls, "Members")
 
-        # Ensure columns exist
         for col in ["Full_Name", "Phone", "Membership_Type", "Join_Date", "Expiry_Date", "Added_By"]:
             if col not in members_df.columns:
                 members_df[col] = ""
@@ -38,27 +37,24 @@ def load_data():
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
 
-    # Parse date columns
-    if "Join_Date" in members_df.columns:
-        members_df["Join_Date"] = pd.to_datetime(members_df["Join_Date"], errors="coerce")
-    if "Expiry_Date" in members_df.columns:
-        members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+    # Ensure dates are datetime
+    for col in ["Join_Date", "Expiry_Date"]:
+        if col in members_df.columns:
+            members_df[col] = pd.to_datetime(members_df[col], errors="coerce")
 
     return users_df, members_df
 
 def save_data(users_df, members_df):
     df_users = users_df.copy()
     df_members = members_df.copy()
-    if "Join_Date" in df_members.columns:
-        df_members["Join_Date"] = df_members["Join_Date"].dt.strftime("%Y-%m-%d")
-    if "Expiry_Date" in df_members.columns:
-        df_members["Expiry_Date"] = df_members["Expiry_Date"].dt.strftime("%Y-%m-%d")
+    for col in ["Join_Date", "Expiry_Date"]:
+        if col in df_members.columns:
+            df_members[col] = df_members[col].dt.strftime("%Y-%m-%d")
 
     with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
         df_users.to_excel(writer, sheet_name="Users", index=False)
         df_members.to_excel(writer, sheet_name="Members", index=False)
 
-    # Monthly backup with day
     now = datetime.now(TIMEZONE)
     month_name = calendar.month_name[now.month]
     backup_file = f"gym_data_{month_name[:3]}_{now.day}.xlsx"
@@ -100,6 +96,10 @@ if st.session_state.logged_in:
 
     def show_expiring_members():
         now = datetime.now(TIMEZONE)
+
+        # Ensure Expiry_Date is datetime
+        members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+
         soon_expiring = members_df[
             (members_df["Expiry_Date"].notna()) &
             (members_df["Expiry_Date"] >= now) &
@@ -118,10 +118,9 @@ if st.session_state.logged_in:
     # --- Member List ---
     st.header("👥 Member List")
     display_df = members_df.copy()
-    if "Join_Date" in display_df.columns:
-        display_df["Join_Date"] = display_df["Join_Date"].dt.strftime("%d-%b-%Y").fillna("")
-    if "Expiry_Date" in display_df.columns:
-        display_df["Expiry_Date"] = display_df["Expiry_Date"].dt.strftime("%d-%b-%Y").fillna("")
+    for col in ["Join_Date", "Expiry_Date"]:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].dt.strftime("%d-%b-%Y").fillna("")
     st.dataframe(display_df.reset_index(drop=True))
 
     # --- Add Member ---
