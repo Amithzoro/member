@@ -44,12 +44,16 @@ def load_data():
 
     return users_df, members_df
 
+# ================= SAVE DATA =================
 def save_data(users_df, members_df):
     df_users = users_df.copy()
     df_members = members_df.copy()
+
+    # Ensure Join_Date and Expiry_Date are datetime before formatting
     for col in ["Join_Date", "Expiry_Date"]:
         if col in df_members.columns:
-            df_members[col] = df_members[col].dt.strftime("%Y-%m-%d")
+            df_members[col] = pd.to_datetime(df_members[col], errors='coerce')
+            df_members[col] = df_members[col].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
 
     with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
         df_users.to_excel(writer, sheet_name="Users", index=False)
@@ -101,8 +105,6 @@ if st.session_state.logged_in:
 
         # Safe datetime conversion
         df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors='coerce')
-
-        # Drop invalid dates
         df = df[df["Expiry_Date"].notna()]
 
         # Filter memberships expiring in next 7 days
@@ -126,7 +128,9 @@ if st.session_state.logged_in:
     display_df = members_df.copy()
     for col in ["Join_Date", "Expiry_Date"]:
         if col in display_df.columns:
-            display_df[col] = display_df[col].dt.strftime("%d-%b-%Y").fillna("")
+            display_df[col] = pd.to_datetime(display_df[col], errors='coerce').apply(
+                lambda x: x.strftime("%d-%b-%Y") if pd.notnull(x) else ""
+            )
     st.dataframe(display_df.reset_index(drop=True))
 
     # --- Add Member ---
