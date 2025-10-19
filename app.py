@@ -99,12 +99,13 @@ if st.session_state.logged_in:
         now = datetime.now(TIMEZONE)
         df = members_df.copy()
 
-        # Ensure Expiry_Date is datetime
-        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors='coerce')
-        df = df[df["Expiry_Date"].notna()]
+        # Convert Expiry_Date to datetime safely
+        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce")
 
-        # Mask for next 7 days
-        mask = df["Expiry_Date"].apply(lambda x: now <= x <= now + timedelta(days=7))
+        # Mask only valid Timestamps
+        mask = df["Expiry_Date"].apply(
+            lambda x: isinstance(x, pd.Timestamp) and now <= x <= now + timedelta(days=7)
+        )
         soon_expiring = df[mask]
 
         reminder_placeholder.empty()
@@ -124,7 +125,7 @@ if st.session_state.logged_in:
     display_df = members_df.copy()
     for col in ["Join_Date", "Expiry_Date"]:
         if col in display_df.columns:
-            display_df[col] = pd.to_datetime(display_df[col], errors='coerce').apply(
+            display_df[col] = pd.to_datetime(display_df[col], errors="coerce").apply(
                 lambda x: x.strftime("%d-%b-%Y") if pd.notnull(x) else "N/A"
             )
     st.dataframe(display_df.reset_index(drop=True))
