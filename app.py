@@ -10,8 +10,7 @@ import time
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 EXCEL_FILE = "gym_data.xlsx"
 
-# ========== DATA LOADING ==========
-@st.cache_data
+# ========== LOAD DATA ==========
 def load_data():
     if not os.path.exists(EXCEL_FILE):
         users_df = pd.DataFrame({
@@ -31,10 +30,17 @@ def load_data():
         users_df = pd.read_excel(xls, "Users")
         members_df = pd.read_excel(xls, "Members")
 
+        # Ensure columns exist
         for col in ["Full_Name", "Phone", "Membership_Type", "Join_Date", "Expiry_Date", "Added_By"]:
             if col not in members_df.columns:
                 members_df[col] = ""
 
+    # Clean up users_df for login
+    users_df = users_df.fillna("").astype(str)
+    users_df["Username"] = users_df["Username"].str.strip()
+    users_df["Password"] = users_df["Password"].str.strip()
+
+    # Parse date columns
     if "Join_Date" in members_df.columns:
         members_df["Join_Date"] = pd.to_datetime(members_df["Join_Date"], errors="coerce")
     if "Expiry_Date" in members_df.columns:
@@ -65,7 +71,7 @@ def save_data(users_df, members_df):
 # Load data
 users_df, members_df = load_data()
 
-# ========== SESSION STATE FOR LOGIN ==========
+# ========== SESSION STATE ==========
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
@@ -78,10 +84,7 @@ password = st.text_input("Password", type="password")
 if st.button("Login"):
     uname = str(username).strip()
     pwd = str(password).strip()
-    user = users_df[
-        (users_df["Username"].astype(str).str.strip() == uname) &
-        (users_df["Password"].astype(str).str.strip() == pwd)
-    ]
+    user = users_df[(users_df["Username"] == uname) & (users_df["Password"] == pwd)]
     if user.empty:
         st.error("❌ Invalid credentials!")
     else:
@@ -89,12 +92,12 @@ if st.button("Login"):
         st.session_state.role = user.iloc[0]["Role"]
         st.success(f"✅ Logged in as {st.session_state.role}")
 
-# Show app only if logged in
+# Only show main app if logged in
 if st.session_state.logged_in:
     role = st.session_state.role
     st.subheader(f"Welcome, {role}!")
 
-    # --- Membership Reminder Sidebar ---
+    # --- Sidebar reminders ---
     reminder_placeholder = st.sidebar.empty()
 
     def show_expiring_members():
@@ -114,7 +117,7 @@ if st.session_state.logged_in:
 
     show_expiring_members()
 
-    # --- Display Members ---
+    # --- Member List ---
     st.header("👥 Member List")
     display_df = members_df.copy()
     if "Join_Date" in display_df.columns:
