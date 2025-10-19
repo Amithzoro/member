@@ -37,7 +37,7 @@ def load_data():
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
 
-    # Ensure dates are datetime
+    # Convert dates safely
     for col in ["Join_Date", "Expiry_Date"]:
         if col in members_df.columns:
             members_df[col] = pd.to_datetime(members_df[col], errors="coerce")
@@ -96,15 +96,11 @@ if st.session_state.logged_in:
 
     def show_expiring_members():
         now = datetime.now(TIMEZONE)
+        df = members_df.copy()
+        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce")
+        df = df[df["Expiry_Date"].notna()]
+        soon_expiring = df[(df["Expiry_Date"] >= now) & (df["Expiry_Date"] <= now + timedelta(days=7))]
 
-        # Ensure Expiry_Date is datetime
-        members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
-
-        soon_expiring = members_df[
-            (members_df["Expiry_Date"].notna()) &
-            (members_df["Expiry_Date"] >= now) &
-            (members_df["Expiry_Date"] <= now + timedelta(days=7))
-        ]
         reminder_placeholder.empty()
         if not soon_expiring.empty:
             reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
