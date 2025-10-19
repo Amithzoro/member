@@ -1,206 +1,286 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+import datetime
 import pytz
+import json
+import hashlib
 import os
-import calendar
-import time
 
-# ================= SETTINGS =================
-TIMEZONE = pytz.timezone("Asia/Kolkata")
-EXCEL_FILE = "gym_data.xlsx"
+# --- Configuration & Constants ---
+OWNER_USERNAME = "vineeth"
+OWNER_PASSWORD_HASH = hashlib.sha256("panda@2006".encode()).hexdigest()
+DB_FILE = "membership_data.xlsx"
+CRED_FILE = "staff_credentials.json"
+IST = pytz.timezone('Asia/Kolkata')
 
-# ================= LOAD DATA =================
-def load_data():
-    if not os.path.exists(EXCEL_FILE):
-        users_df = pd.DataFrame({
-            "Username": ["vineeth", "staff1"],
-            "Role": ["Owner", "Staff"]
-        })
-        members_df = pd.DataFrame(columns=[
-            "Full_Name", "Phone", "Membership_Type",
-            "Join_Date", "Expiry_Date", "Added_By"
-        ])
-        with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
-            users_df.to_excel(writer, sheet_name="Users", index=False)
-            members_df.to_excel(writer, sheet_name="Members", index=False)
-    else:
-        xls = pd.ExcelFile(EXCEL_FILE)
-        users_df = pd.read_excel(xls, "Users")
-        members_df = pd.read_excel(xls, "Members")
+# --- Utility Functions ---
 
-        for col in ["Full_Name", "Phone", "Membership_Type", "Join_Date", "Expiry_Date", "Added_By"]:
-            if col not in members_df.columns:
-                members_df[col] = ""
+def hash_password(password):
+    """Hashes a password using SHA256."""
+    return hashlib.sha256(password.encode()).hexdigest()
 
-    users_df = users_df.fillna("").astype(str)
-    users_df["Username"] = users_df["Username"].str.strip()
+def get_ist_time():
+    """Returns the current IST datetime."""
+    return datetime.datetime.now(IST)
 
-    # Convert dates safely
-    for col in ["Join_Date", "Expiry_Date"]:
-        if col in members_df.columns:
-            members_df[col] = pd.to_datetime(members_df[col], errors='coerce')
+# --- Staff Credentials Persistence ---
 
-    return users_df, members_df
+def load_staff_credentials():
+    if os.path.exists(CRED_FILE):
+        try:
+            with open(CRED_FILE, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            st.error("Error loading staff credentials. Resetting to empty.")
+            return {}
+    return {}
 
-# ================= SAVE DATA =================
-def save_data(users_df, members_df):
-    df_users = users_df.copy()
-    df_members = members_df.copy()
+def save_staff_credentials(creds):
+    with open(CRED_FILE, 'w') as f:
+        json.dump(creds, f, indent=4)
 
-    for col in ["Join_Date", "Expiry_Date"]:
-        if col in df_members.columns:
-            df_members[col] = pd.to_datetime(df_members[col], errors='coerce')
-            df_members[col] = df_members[col].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
+# --- Database Persistence ---
 
-    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
-        df_users.to_excel(writer, sheet_name="Users", index=False)
-        df_members.to_excel(writer, sheet_name="Members", index=False)
+def load_database():
+    try:
+        member_df = pd.read_excel(DB_FILE, sheet_name='Members')
+        if not member_df.empty:
+            member_df['Join Date'] = pd.to_datetime(member_df['Join Date']).dt.date
+            member_df['Expiry Date'] = pd.to_datetime(member_df['Expiry Date']).dt.date
+            member_df['ID'] = member_df['ID'].astype(int)
+        log_df = pd.read_excel(DB_FILE, sheet_name='CheckIns')
+        if not log_df.empty:
+            log_df['CheckIn Time_dt'] = pd.to_datetime(log_df['CheckIn Time'].str.replace(' IST',''))
+        return member_df, log_df
+    except FileNotFoundError:
+        member_df = pd.DataFrame(columns=['ID', 'Name', 'Phone', 'Membership Type', 'Join Date', 'Expiry Date'])
+        log_df = pd.DataFrame(columns=['ID', 'Name', 'CheckIn Time', 'Staff User'])
+        return member_df, log_df
+    except ValueError:
+        st.error("Database file is corrupted or sheets missing. Starting fresh.")
+        member_df = pd.DataFrame(columns=['ID', 'Name', 'Phone', 'Membership Type', 'Join Date', 'Expiry Date'])
+        log_df = pd.DataFrame(columns=['ID', 'Name', 'CheckIn Time', 'Staff User'])
+        return member_df, log_df
 
-    # Monthly backup
-    now = datetime.now(TIMEZONE)
-    month_name = calendar.month_name[now.month]
-    backup_file = f"gym_data_{month_name[:3]}_{now.day}.xlsx"
-    with pd.ExcelWriter(backup_file, engine="openpyxl") as writer:
-        df_users.to_excel(writer, sheet_name="Users", index=False)
-        df_members.to_excel(writer, sheet_name="Members", index=False)
+def save_database(member_df, log_df):
+    try:
+        with pd.ExcelWriter(DB_FILE, engine='openpyxl') as writer:
+            member_df.to_excel(writer, sheet_name='Members', index=False)
+            log_df.drop(columns=['CheckIn Time_dt'], errors='ignore').to_excel(writer, sheet_name='CheckIns', index=False)
+    except Exception as e:
+        st.error(f"Error saving database: {e}")
 
-# ================= LOAD DATA =================
-users_df, members_df = load_data()
+# --- Core Logic ---
 
-# ================= SESSION STATE =================
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.role = None
+def record_entry(member_id, member_df, log_df, staff_user):
+    member = member_df[member_df['ID'] == member_id]
+    if member.empty:
+        st.error(f"Member ID {member_id} not found.")
+        return False, log_df
+    member_name = member['Name'].iloc[0]
+    expiry_date = member['Expiry Date'].iloc[0]
+    today = get_ist_time().date()
+    if expiry_date < today:
+        st.error(f"Membership expired for {member_name} (Expiry: {expiry_date})")
+        return False, log_df
+    checkin_time = get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')
+    new_entry = pd.DataFrame([{
+        'ID': member_id,
+        'Name': member_name,
+        'CheckIn Time': checkin_time,
+        'Staff User': staff_user,
+        'CheckIn Time_dt': pd.to_datetime(get_ist_time())
+    }])
+    log_df = pd.concat([log_df, new_entry], ignore_index=True)
+    st.success(f"✅ Entry Recorded: {member_name} at {checkin_time}")
+    days_until_expiry = (expiry_date - today).days
+    if days_until_expiry <= 7:
+        st.warning(f"⚠️ Reminder: {member_name}'s membership expires in {days_until_expiry} days.")
+    return True, log_df
 
-st.title("🏋️ Gym Membership Management")
+# --- Staff Registration/Login ---
 
-# --- LOGIN ---
-username = st.text_input("Username")
-if st.button("Login"):
-    uname = str(username).strip()
-    user = users_df[users_df["Username"] == uname]
-    if user.empty:
-        st.error("❌ Invalid username!")
-    else:
-        st.session_state.logged_in = True
-        st.session_state.role = user.iloc[0]["Role"]
-        st.success(f"✅ Logged in as {st.session_state.role}")
-
-# ================= MAIN APP =================
-if st.session_state.logged_in:
-    role = st.session_state.role
-    st.subheader(f"Welcome, {role}!")
-
-    # --- Sidebar reminders ---
-    reminder_placeholder = st.sidebar.empty()
-
-    def show_expiring_members():
-        now = datetime.now(TIMEZONE)
-        df = members_df.copy()
-
-        # Convert Expiry_Date to datetime safely
-        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce")
-
-        # Mask only valid Timestamps
-        mask = df["Expiry_Date"].apply(
-            lambda x: isinstance(x, pd.Timestamp) and now <= x <= now + timedelta(days=7)
-        )
-        soon_expiring = df[mask]
-
-        reminder_placeholder.empty()
-        if not soon_expiring.empty:
-            reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
-            for _, row in soon_expiring.iterrows():
-                reminder_placeholder.write(
-                    f"📅 {row['Full_Name']} - expires on {row['Expiry_Date'].strftime('%d-%b-%Y')}"
-                )
+def staff_registration():
+    st.subheader("Staff Registration")
+    new_username = st.text_input("New Staff Username")
+    new_password = st.text_input("New Staff Password", type="password")
+    confirm_password = st.text_input("Confirm Password", type="password")
+    if st.button("Register Staff"):
+        if not new_username or not new_password:
+            st.error("Fields cannot be empty.")
+        elif new_password != confirm_password:
+            st.error("Passwords do not match.")
+        elif new_username == OWNER_USERNAME:
+            st.error("Reserved username.")
         else:
-            reminder_placeholder.info("✅ No memberships expiring soon.")
-
-    show_expiring_members()
-
-    # --- Member List ---
-    st.header("👥 Member List")
-    display_df = members_df.copy()
-    for col in ["Join_Date", "Expiry_Date"]:
-        if col in display_df.columns:
-            display_df[col] = pd.to_datetime(display_df[col], errors="coerce").apply(
-                lambda x: x.strftime("%d-%b-%Y") if pd.notnull(x) else "N/A"
-            )
-    st.dataframe(display_df.reset_index(drop=True))
-
-    # --- Add Member ---
-    st.subheader("➕ Add New Member")
-    with st.form("add_member_form"):
-        full_name = st.text_input("Full Name")
-        phone = st.text_input("Phone Number")
-        membership_type = st.selectbox("Membership Type", ["Monthly", "Quarterly", "Yearly"])
-        submit = st.form_submit_button("Add Member")
-
-        if submit:
-            if not full_name or not phone:
-                st.warning("⚠️ Please fill all fields.")
-            elif phone in members_df["Phone"].astype(str).tolist():
-                st.warning("⚠️ Member with this phone already exists.")
+            creds = load_staff_credentials()
+            if new_username in creds:
+                st.error("Username exists.")
             else:
-                join_date = datetime.now(TIMEZONE)
-                if membership_type == "Monthly":
-                    expiry_date = join_date + timedelta(days=30)
-                elif membership_type == "Quarterly":
-                    expiry_date = join_date + timedelta(days=90)
+                creds[new_username] = hash_password(new_password)
+                save_staff_credentials(creds)
+                st.success(f"Staff '{new_username}' registered successfully.")
+
+def login_page():
+    st.image("https://placehold.co/600x150/1F3D78/ffffff?text=GYM+MEMBERSHIP+APP", use_column_width=True)
+    st.title("Member Check-In & Management")
+    st.subheader("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if username == OWNER_USERNAME and hash_password(password) == OWNER_PASSWORD_HASH:
+            st.session_state['logged_in'] = True
+            st.session_state['user'] = OWNER_USERNAME
+            st.session_state['role'] = 'owner'
+            st.rerun()
+        else:
+            creds = load_staff_credentials()
+            if username in creds and hash_password(password) == creds[username]:
+                st.session_state['logged_in'] = True
+                st.session_state['user'] = username
+                st.session_state['role'] = 'staff'
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+    st.markdown("---")
+    st.info("Staff: Register if you haven't yet.")
+    if st.button("Register New Staff Account"):
+        st.session_state['show_register'] = True
+    if st.session_state.get('show_register'):
+        staff_registration()
+
+# --- Sidebar ---
+
+def sidebar_menu():
+    st.sidebar.title("Welcome")
+    st.sidebar.markdown(f"**User:** {st.session_state.get('user', 'Guest')}")
+    st.sidebar.markdown(f"**Role:** _{st.session_state.get('role', 'N/A')}_")
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+    st.sidebar.markdown("---")
+    st.sidebar.header("Navigation")
+
+# --- Pages ---
+
+def page_check_in(member_df, log_df):
+    st.header("Member Check-In")
+    st.markdown(f"Current IST: `{get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')}`")
+    member_id_input = st.number_input("Enter Member ID:", min_value=1, step=1, key="check_in_id")
+    if st.button("Record Entry", use_column_width=True):
+        if member_id_input:
+            success, new_log_df = record_entry(member_id_input, member_df, log_df, st.session_state['user'])
+            if success:
+                st.session_state['log_df'] = new_log_df
+                save_database(member_df, new_log_df)
+    st.markdown("---")
+    st.subheader("Recent Check-Ins")
+    if not log_df.empty:
+        df_disp = log_df.sort_values('CheckIn Time_dt', ascending=False).head(10)
+        st.dataframe(df_disp[['ID','Name','CheckIn Time','Staff User']], use_container_width=True, hide_index=True)
+    else:
+        st.info("No check-in entries yet.")
+
+def add_member_form(member_df):
+    with st.expander("➕ Add New Member"):
+        with st.form("add_member_form", clear_on_submit=True):
+            next_id = int(member_df['ID'].max() + 1) if not member_df.empty else 1
+            st.text_input("Member ID (Auto-Generated)", value=str(next_id), disabled=True)
+            name = st.text_input("Full Name *")
+            phone = st.text_input("Phone Number *")
+            m_type = st.selectbox("Membership Type *", ['Monthly', 'Quarterly', 'Annual', 'Trial'])
+            join_date = st.date_input("Join Date *", value=get_ist_time().date())
+            expiry_date = st.date_input("Expiry Date *", value=join_date + datetime.timedelta(days=30))
+            submitted = st.form_submit_button("Register Member")
+            if submitted:
+                if not name or not phone:
+                    st.error("Fill all required fields (*).")
+                elif expiry_date <= join_date:
+                    st.error("Expiry must be after Join Date.")
                 else:
-                    expiry_date = join_date + timedelta(days=365)
+                    new_member = pd.DataFrame([{
+                        'ID': next_id,
+                        'Name': name,
+                        'Phone': phone,
+                        'Membership Type': m_type,
+                        'Join Date': join_date,
+                        'Expiry Date': expiry_date
+                    }])
+                    new_member['ID'] = new_member['ID'].astype(int)
+                    member_df = pd.concat([member_df, new_member], ignore_index=True)
+                    st.session_state['member_df'] = member_df
+                    st.success(f"Member **{name}** registered with ID: **{next_id}**")
+                    st.rerun()
+    return member_df
 
-                new_row = {
-                    "Full_Name": full_name,
-                    "Phone": phone,
-                    "Membership_Type": membership_type,
-                    "Join_Date": join_date,
-                    "Expiry_Date": expiry_date,
-                    "Added_By": role
-                }
-                members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
-                save_data(users_df, members_df)
-                st.success(f"✅ Member '{full_name}' added successfully!")
+def page_member_management(member_df):
+    st.header("Member Management")
+    if st.session_state['role'] == 'owner':
+        member_df = add_member_form(member_df)
+    else:
+        st.info("Staff can only view members.")
+    st.markdown("---")
+    st.subheader("Active Members List")
+    if not member_df.empty:
+        st.dataframe(member_df.sort_values('ID'), use_container_width=True, hide_index=True)
+    else:
+        st.info("No members registered yet.")
+    return member_df
 
-    # --- Edit/Delete Members (Owner Only) ---
-    if role == "Owner":
-        st.subheader("✏️ Edit / Delete Members")
-        if not members_df.empty:
-            member_names = members_df["Full_Name"].fillna("").tolist()
-            selected_member = st.selectbox("Select Member", member_names)
+def page_reminders(member_df):
+    st.header("Membership Reminders")
+    if st.session_state['role'] != 'owner':
+        st.warning("You do not have permission to view reminders.")
+        return
+    today = get_ist_time().date()
+    df_temp = member_df.copy()
+    df_temp['Days Until Expiry'] = (df_temp['Expiry Date'] - today).apply(lambda x: x.days)
+    expiring_soon = df_temp[(df_temp['Days Until Expiry'] <= 30) & (df_temp['Days Until Expiry'] >= 0)]
+    expired = df_temp[df_temp['Days Until Expiry'] < 0]
+    st.subheader("🚨 Expired Memberships")
+    if not expired.empty:
+        st.dataframe(expired.style.applymap(lambda x: 'color: red', subset=['Expiry Date']), use_container_width=True)
+    else:
+        st.info("🎉 No expired memberships!")
+    st.subheader("⏳ Expiring Within 30 Days")
+    if not expiring_soon.empty:
+        st.dataframe(expiring_soon.sort_values('Days Until Expiry'), use_container_width=True)
+    else:
+        st.info("Everyone is good for at least 30 days!")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🗑 Delete Member"):
-                    members_df = members_df[members_df["Full_Name"] != selected_member].reset_index(drop=True)
-                    save_data(users_df, members_df)
-                    st.warning(f"🗑 Member '{selected_member}' deleted!")
+# --- Main App ---
 
-            with col2:
-                new_type = st.selectbox("Change Membership Type", ["Monthly", "Quarterly", "Yearly"], key="edit_type")
-                if st.button("💾 Update Type"):
-                    idx = members_df.index[members_df["Full_Name"] == selected_member]
-                    if len(idx) > 0:
-                        i = idx[0]
-                        join_dt = members_df.at[i, "Join_Date"]
-                        if pd.isna(join_dt):
-                            join_dt = datetime.now(TIMEZONE)
-                        if new_type == "Monthly":
-                            expiry_date = join_dt + timedelta(days=30)
-                        elif new_type == "Quarterly":
-                            expiry_date = join_dt + timedelta(days=90)
-                        else:
-                            expiry_date = join_dt + timedelta(days=365)
-                        members_df.at[i, "Membership_Type"] = new_type
-                        members_df.at[i, "Expiry_Date"] = expiry_date
-                        save_data(users_df, members_df)
-                        st.success(f"🔁 Updated '{selected_member}' to {new_type} (expiry recalculated)")
-                    else:
-                        st.error("Selected member not found.")
+def main_app():
+    sidebar_menu()
+    if 'member_df' not in st.session_state or 'log_df' not in st.session_state:
+        st.session_state['member_df'], st.session_state['log_df'] = load_database()
+    member_df = st.session_state['member_df']
+    log_df = st.session_state['log_df']
+    page_options = {"Check-In / Entry": page_check_in, "Member Management": page_member_management}
+    if st.session_state['role'] == 'owner':
+        page_options["Membership Reminders"] = page_reminders
+    selected_page = st.sidebar.radio("Go to", list(page_options.keys()))
+    st.title(selected_page)
+    st.markdown("---")
+    if selected_page == "Check-In / Entry":
+        page_options[selected_page](member_df, log_df)
+    elif selected_page == "Member Management":
+        st.session_state['member_df'] = page_options[selected_page](member_df)
+        save_database(st.session_state['member_df'], st.session_state['log_df'])
+    elif selected_page == "Membership Reminders":
+        page_options[selected_page](member_df)
 
-    # --- Auto Refresh for 2-minute reminders ---
-    st.info("ℹ️ Page auto-refreshes every 2 minutes for membership reminders.")
-    time.sleep(120)
-    st.experimental_rerun()
+# --- App Execution ---
+
+if __name__ == "__main__":
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
+    if 'show_register' not in st.session_state:
+        st.session_state['show_register'] = False
+    if not os.path.exists(CRED_FILE):
+        save_staff_credentials({})
+    if st.session_state['logged_in']:
+        main_app()
+    else:
+        hash_password("panda@2006")
+        login_page()
