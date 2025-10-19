@@ -6,11 +6,11 @@ import os
 import calendar
 import time
 
-# ========== SETTINGS ==========
+# ================= SETTINGS =================
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 EXCEL_FILE = "gym_data.xlsx"
 
-# ========== LOAD DATA ==========
+# ================= LOAD DATA =================
 def load_data():
     if not os.path.exists(EXCEL_FILE):
         users_df = pd.DataFrame({
@@ -37,10 +37,10 @@ def load_data():
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
 
-    # Convert dates safely using apply
+    # Convert dates safely
     for col in ["Join_Date", "Expiry_Date"]:
         if col in members_df.columns:
-            members_df[col] = members_df[col].apply(lambda x: pd.to_datetime(x, errors='coerce'))
+            members_df[col] = pd.to_datetime(members_df[col], errors='coerce')
 
     return users_df, members_df
 
@@ -63,10 +63,10 @@ def save_data(users_df, members_df):
         df_users.to_excel(writer, sheet_name="Users", index=False)
         df_members.to_excel(writer, sheet_name="Members", index=False)
 
-# Load data
+# ================= LOAD DATA =================
 users_df, members_df = load_data()
 
-# ========== SESSION STATE ==========
+# ================= SESSION STATE =================
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
@@ -87,7 +87,7 @@ if st.button("Login"):
         st.session_state.role = user.iloc[0]["Role"]
         st.success(f"✅ Logged in as {st.session_state.role}")
 
-# --- MAIN APP AFTER LOGIN ---
+# ================= MAIN APP AFTER LOGIN =================
 if st.session_state.logged_in:
     role = st.session_state.role
     st.subheader(f"Welcome, {role}!")
@@ -100,11 +100,14 @@ if st.session_state.logged_in:
         df = members_df.copy()
 
         # Safe datetime conversion
-        df["Expiry_Date"] = df["Expiry_Date"].apply(lambda x: pd.to_datetime(x, errors='coerce'))
+        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors='coerce')
+
+        # Drop invalid dates
         df = df[df["Expiry_Date"].notna()]
 
         # Filter memberships expiring in next 7 days
-        soon_expiring = df[(df["Expiry_Date"] >= now) & (df["Expiry_Date"] <= now + timedelta(days=7))]
+        mask = df["Expiry_Date"].apply(lambda x: now <= x <= now + timedelta(days=7))
+        soon_expiring = df[mask]
 
         reminder_placeholder.empty()
         if not soon_expiring.empty:
