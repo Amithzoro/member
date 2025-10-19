@@ -37,10 +37,10 @@ def load_data():
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
 
-    # Convert dates safely
+    # Convert dates safely using apply
     for col in ["Join_Date", "Expiry_Date"]:
         if col in members_df.columns:
-            members_df[col] = pd.to_datetime(members_df[col], errors="coerce")
+            members_df[col] = members_df[col].apply(lambda x: pd.to_datetime(x, errors='coerce'))
 
     return users_df, members_df
 
@@ -55,6 +55,7 @@ def save_data(users_df, members_df):
         df_users.to_excel(writer, sheet_name="Users", index=False)
         df_members.to_excel(writer, sheet_name="Members", index=False)
 
+    # Monthly backup
     now = datetime.now(TIMEZONE)
     month_name = calendar.month_name[now.month]
     backup_file = f"gym_data_{month_name[:3]}_{now.day}.xlsx"
@@ -97,15 +98,21 @@ if st.session_state.logged_in:
     def show_expiring_members():
         now = datetime.now(TIMEZONE)
         df = members_df.copy()
-        df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce")
+
+        # Safe datetime conversion
+        df["Expiry_Date"] = df["Expiry_Date"].apply(lambda x: pd.to_datetime(x, errors='coerce'))
         df = df[df["Expiry_Date"].notna()]
+
+        # Filter memberships expiring in next 7 days
         soon_expiring = df[(df["Expiry_Date"] >= now) & (df["Expiry_Date"] <= now + timedelta(days=7))]
 
         reminder_placeholder.empty()
         if not soon_expiring.empty:
             reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
             for _, row in soon_expiring.iterrows():
-                reminder_placeholder.write(f"📅 {row['Full_Name']} - expires on {row['Expiry_Date'].strftime('%d-%b-%Y')}")
+                reminder_placeholder.write(
+                    f"📅 {row['Full_Name']} - expires on {row['Expiry_Date'].strftime('%d-%b-%Y')}"
+                )
         else:
             reminder_placeholder.info("✅ No memberships expiring soon.")
 
