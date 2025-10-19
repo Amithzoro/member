@@ -4,12 +4,13 @@ from datetime import datetime, timedelta
 import pytz
 import os
 import calendar
+import time
 
 # ========== SETTINGS ==========
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 EXCEL_FILE = "gym_data.xlsx"
 
-# ========== INITIAL DATA CREATION ==========
+# ========== DATA LOADING ==========
 @st.cache_data
 def load_data():
     if not os.path.exists(EXCEL_FILE):
@@ -30,12 +31,10 @@ def load_data():
         users_df = pd.read_excel(xls, "Users")
         members_df = pd.read_excel(xls, "Members")
 
-        # Ensure required columns exist (safety net)
         for col in ["Full_Name", "Phone", "Membership_Type", "Join_Date", "Expiry_Date", "Added_By"]:
             if col not in members_df.columns:
                 members_df[col] = ""
 
-    # Parse dates safely
     if "Join_Date" in members_df.columns:
         members_df["Join_Date"] = pd.to_datetime(members_df["Join_Date"], errors="coerce")
     if "Expiry_Date" in members_df.columns:
@@ -44,7 +43,6 @@ def load_data():
     return users_df, members_df
 
 def save_data(users_df, members_df):
-    # Keep types reasonable; convert datetimes to ISO strings for storage
     df_users = users_df.copy()
     df_members = members_df.copy()
     if "Join_Date" in df_members.columns:
@@ -56,7 +54,7 @@ def save_data(users_df, members_df):
         df_users.to_excel(writer, sheet_name="Users", index=False)
         df_members.to_excel(writer, sheet_name="Members", index=False)
 
-    # Save monthly backup with day to avoid overwrite
+    # Monthly backup with day to avoid overwrite
     now = datetime.now(TIMEZONE)
     month_name = calendar.month_name[now.month]
     backup_file = f"gym_data_{month_name[:3]}_{now.day}.xlsx"
@@ -64,7 +62,7 @@ def save_data(users_df, members_df):
         df_users.to_excel(writer, sheet_name="Users", index=False)
         df_members.to_excel(writer, sheet_name="Members", index=False)
 
-# ========== LOAD DATA ==========
+# Load data
 users_df, members_df = load_data()
 
 # ========== LOGIN ==========
@@ -82,36 +80,33 @@ if st.button("Login"):
         role = user.iloc[0]["Role"]
         st.success(f"✅ Logged in as {role}")
 
-        # --- Members Section ---
-        st.header("👥 Member List")
+        # --- Membership Reminder Sidebar ---
+        reminder_placeholder = st.sidebar.empty()
 
-        # Ensure date columns present and typed correctly
-        if "Join_Date" in members_df.columns:
-            members_df["Join_Date"] = pd.to_datetime(members_df["Join_Date"], errors="coerce")
-        if "Expiry_Date" in members_df.columns:
-            members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
-
-        # --- Reminder Section ---
-        if not members_df.empty:
+        def show_expiring_members():
             now = datetime.now(TIMEZONE)
             soon_expiring = members_df[
                 (members_df["Expiry_Date"].notna()) &
                 (members_df["Expiry_Date"] >= now) &
                 (members_df["Expiry_Date"] <= now + timedelta(days=7))
             ]
+            reminder_placeholder.empty()
             if not soon_expiring.empty:
-                st.sidebar.warning("⚠️ Memberships Expiring Soon:")
+                reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
                 for _, row in soon_expiring.iterrows():
-                    ed = row["Expiry_Date"]
-                    st.sidebar.write(f"📅 {row['Full_Name']} - expires on {ed.strftime('%d-%b-%Y')}")
+                    reminder_placeholder.write(f"📅 {row['Full_Name']} - expires on {row['Expiry_Date'].strftime('%d-%b-%Y')}")
+            else:
+                reminder_placeholder.info("✅ No memberships expiring soon.")
 
-        # Display a friendly table (formatted dates)
+        show_expiring_members()
+
+        # --- Display Members ---
+        st.header("👥 Member List")
         display_df = members_df.copy()
         if "Join_Date" in display_df.columns:
             display_df["Join_Date"] = display_df["Join_Date"].dt.strftime("%d-%b-%Y").fillna("")
         if "Expiry_Date" in display_df.columns:
             display_df["Expiry_Date"] = display_df["Expiry_Date"].dt.strftime("%d-%b-%Y").fillna("")
-
         st.dataframe(display_df.reset_index(drop=True))
 
         # --- Add Member ---
@@ -125,75 +120,67 @@ if st.button("Login"):
             if submit:
                 if not full_name or not phone:
                     st.warning("⚠️ Please fill all fields.")
+                elif phone in members_df["Phone"].astype(str).tolist():
+                    st.warning("⚠️ Member with this phone already exists.")
                 else:
-                    # duplicate phone check
-                    if phone.strip() != "" and phone in members_df["Phone"].astype(str).tolist():
-                        st.warning("⚠️ A member with this phone number already exists.")
+                    join_date = datetime.now(TIMEZONE)
+                    if membership_type == "Monthly":
+                        expiry_date = join_date + timedelta(days=30)
+                    elif membership_type == "Quarterly":
+                        expiry_date = join_date + timedelta(days=90)
                     else:
-                        join_date = datetime.now(TIMEZONE)
-                        if membership_type == "Monthly":
-                            expiry_date = join_date + timedelta(days=30)
-                        elif membership_type == "Quarterly":
-                            expiry_date = join_date + timedelta(days=90)
-                        else:
-                            expiry_date = join_date + timedelta(days=365)
+                        expiry_date = join_date + timedelta(days=365)
 
-                        new_row = {
-                            "Full_Name": full_name,
-                            "Phone": phone,
-                            "Membership_Type": membership_type,
-                            "Join_Date": join_date,
-                            "Expiry_Date": expiry_date,
-                            "Added_By": role
-                        }
+                    new_row = {
+                        "Full_Name": full_name,
+                        "Phone": phone,
+                        "Membership_Type": membership_type,
+                        "Join_Date": join_date,
+                        "Expiry_Date": expiry_date,
+                        "Added_By": role
+                    }
 
-                        members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
-                        save_data(users_df, members_df)
-                        st.success(f"✅ Member '{full_name}' added successfully!")
+                    members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
+                    save_data(users_df, members_df)
+                    st.success(f"✅ Member '{full_name}' added successfully!")
 
-        # --- Edit/Delete only for Owner ---
+        # --- Edit/Delete Members (Owner Only) ---
         if role == "Owner":
             st.subheader("✏️ Edit / Delete Members")
-
-            if members_df.empty:
-                st.info("No members to edit.")
-            else:
+            if not members_df.empty:
                 member_names = members_df["Full_Name"].fillna("").tolist()
                 selected_member = st.selectbox("Select Member", member_names)
 
-                edit_col1, edit_col2 = st.columns(2)
-                with edit_col1:
+                col1, col2 = st.columns(2)
+                with col1:
                     if st.button("🗑 Delete Member"):
                         members_df = members_df[members_df["Full_Name"] != selected_member].reset_index(drop=True)
                         save_data(users_df, members_df)
                         st.warning(f"🗑 Member '{selected_member}' deleted!")
 
-                with edit_col2:
+                with col2:
                     new_type = st.selectbox("Change Membership Type", ["Monthly", "Quarterly", "Yearly"], key="edit_type")
                     if st.button("💾 Update Type"):
-                        # find the member's join date (fallback to now if missing)
                         idx = members_df.index[members_df["Full_Name"] == selected_member]
                         if len(idx) > 0:
                             i = idx[0]
                             join_dt = members_df.at[i, "Join_Date"]
-                            try:
-                                join_dt = pd.to_datetime(join_dt)
-                            except Exception:
-                                join_dt = datetime.now(TIMEZONE)
-
                             if pd.isna(join_dt):
                                 join_dt = datetime.now(TIMEZONE)
-
                             if new_type == "Monthly":
                                 expiry_date = join_dt + timedelta(days=30)
                             elif new_type == "Quarterly":
                                 expiry_date = join_dt + timedelta(days=90)
                             else:
                                 expiry_date = join_dt + timedelta(days=365)
-
                             members_df.at[i, "Membership_Type"] = new_type
                             members_df.at[i, "Expiry_Date"] = expiry_date
                             save_data(users_df, members_df)
                             st.success(f"🔁 Updated '{selected_member}' to {new_type} (expiry recalculated)")
                         else:
                             st.error("Selected member not found.")
+
+        # --- Auto Refresh for 2-minute reminders ---
+        st.info("ℹ️ Page auto-refreshes every 2 minutes for membership reminders.")
+        time.sleep(120)
+        st.experimental_rerun()
