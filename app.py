@@ -33,7 +33,6 @@ def load_data():
             if col not in members_df.columns:
                 members_df[col] = ""
 
-    # Clean usernames
     users_df = users_df.fillna("").astype(str)
     users_df["Username"] = users_df["Username"].str.strip()
 
@@ -79,11 +78,9 @@ st.title("🏋️ Gym Membership Management")
 
 # --- LOGIN WITHOUT PASSWORD ---
 username = st.text_input("Username")
-
 if st.button("Login"):
     uname = str(username).strip()
     user = users_df[users_df["Username"] == uname]
-
     if user.empty:
         st.error("❌ Invalid username!")
     else:
@@ -98,19 +95,13 @@ if st.session_state.logged_in:
 
     # --- Sidebar reminders ---
     reminder_placeholder = st.sidebar.empty()
-
     def show_expiring_members():
         now = datetime.now(TIMEZONE)
         df = members_df.copy()
-
-        # Safe datetime conversion
         df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors='coerce')
         df = df[df["Expiry_Date"].notna()]
-
-        # Filter memberships expiring in next 7 days
         mask = df["Expiry_Date"].apply(lambda x: now <= x <= now + timedelta(days=7))
         soon_expiring = df[mask]
-
         reminder_placeholder.empty()
         if not soon_expiring.empty:
             reminder_placeholder.warning("⚠️ Memberships Expiring Soon (Next 7 Days):")
@@ -129,7 +120,7 @@ if st.session_state.logged_in:
     for col in ["Join_Date", "Expiry_Date"]:
         if col in display_df.columns:
             display_df[col] = pd.to_datetime(display_df[col], errors='coerce').apply(
-                lambda x: x.strftime("%d-%b-%Y") if pd.notnull(x) else ""
+                lambda x: x.strftime("%d-%b-%Y") if pd.notnull(x) else "N/A"
             )
     st.dataframe(display_df.reset_index(drop=True))
 
@@ -163,7 +154,6 @@ if st.session_state.logged_in:
                     "Expiry_Date": expiry_date,
                     "Added_By": role
                 }
-
                 members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
                 save_data(users_df, members_df)
                 st.success(f"✅ Member '{full_name}' added successfully!")
