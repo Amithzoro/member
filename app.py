@@ -3,50 +3,45 @@ import pandas as pd
 import datetime
 import pytz
 import os
-import hashlib
 
 # ---------------- CONFIG ----------------
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "gym_data.xlsx"
 
 OWNER_USERNAME = "vineeth"
-OWNER_PASSWORD = "panda@2006"  # plaintext for simplicity
-STAFF_CREDENTIALS = {"staff1": "staff123"}  # initial staff users
+OWNER_PASSWORD = "panda@2006"
+STAFF_CREDENTIALS = {"staff1": "staff123"}  # initial staff login
 
 # ---------------- UTILS ----------------
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
 def get_ist_time():
     return datetime.datetime.now(IST)
 
-# ---------------- DATABASE ----------------
 def load_data():
     if os.path.exists(DB_FILE):
         try:
-            members_df = pd.read_excel(DB_FILE, sheet_name='Members')
-            if not members_df.empty:
-                members_df['Join Date'] = pd.to_datetime(members_df['Join Date'])
-                members_df['Expiry Date'] = pd.to_datetime(members_df['Expiry Date'])
+            df = pd.read_excel(DB_FILE, sheet_name='Members')
+            if not df.empty:
+                df['Join Date'] = pd.to_datetime(df['Join Date'])
+                df['Expiry Date'] = pd.to_datetime(df['Expiry Date'])
             else:
-                members_df = pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Date','Expiry Date'])
-            return members_df
+                df = pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Date','Expiry Date'])
+            return df
         except:
             pass
-    members_df = pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Date','Expiry Date'])
-    save_data(members_df)
-    return members_df
+    df = pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Date','Expiry Date'])
+    save_data(df)
+    return df
 
-def save_data(members_df):
+def save_data(df):
     with pd.ExcelWriter(DB_FILE, engine='openpyxl') as writer:
-        members_df.to_excel(writer, sheet_name='Members', index=False)
+        df.to_excel(writer, sheet_name='Members', index=False)
 
 # ---------------- LOGIN ----------------
 def login():
     st.title("Gym Membership System")
-    username = st.text_input("Username", key="login_user")
-    password = st.text_input("Password", type="password", key="login_pass")
-    if st.button("Login", key="login_btn"):
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
         if username == OWNER_USERNAME and password == OWNER_PASSWORD:
             st.session_state['logged_in'] = True
             st.session_state['role'] = 'owner'
@@ -64,7 +59,7 @@ def login():
 def sidebar():
     st.sidebar.title(f"User: {st.session_state['user']}")
     st.sidebar.markdown(f"Role: {st.session_state['role']}")
-    if st.sidebar.button("Logout", key="logout_btn"):
+    if st.sidebar.button("Logout"):
         st.session_state.clear()
         st.experimental_rerun()
 
@@ -72,20 +67,23 @@ def sidebar():
 def member_management(members_df):
     st.header("Member Management")
     
-    # Add member (owner & staff)
+    # --- Add Member ---
     with st.expander("Add Member"):
-        next_id = int(members_df['ID'].max() + 1) if not members_df.empty else 1
-        name = st.text_input("Full Name", key=f"add_name_{next_id}")
-        phone = st.text_input("Phone", key=f"add_phone_{next_id}")
-        mtype = st.selectbox("Membership Type", ['Monthly','Quarterly','Yearly'], key=f"add_mtype_{next_id}")
-        join = st.date_input("Join Date", get_ist_time().date(), key=f"add_join_{next_id}")
+        next_id = int(members_df['ID'].max()+1) if not members_df.empty else 1
+        name = st.text_input("Full Name", key="add_name")
+        phone = st.text_input("Phone", key="add_phone")
+        mtype = st.selectbox("Membership Type", ['Monthly','Quarterly','Yearly'], key="add_mtype")
+        join = st.date_input("Join Date", get_ist_time().date(), key="add_join")
+        
+        # calculate expiry
         if mtype=='Monthly':
             expiry = join + datetime.timedelta(days=30)
         elif mtype=='Quarterly':
             expiry = join + datetime.timedelta(days=90)
         else:
             expiry = join + datetime.timedelta(days=365)
-        if st.button("Add Member", key=f"add_btn_{next_id}"):
+        
+        if st.button("Add Member", key="add_member_btn"):
             if not name or not phone:
                 st.error("All fields required")
             else:
@@ -100,33 +98,39 @@ def member_management(members_df):
                 members_df = pd.concat([members_df, new_member], ignore_index=True)
                 save_data(members_df)
                 st.success(f"Added {name} (ID:{next_id})")
-
-    # Edit member (only owner)
+    
+    # --- Edit Member (Owner Only) ---
     if st.session_state['role'] == 'owner' and not members_df.empty:
         st.subheader("Edit Member")
-        member_id = st.number_input("Enter Member ID to Edit", min_value=1, step=1, key="edit_id_input")
-        if st.button("Load Member", key=f"load_{member_id}"):
-            if member_id in members_df['ID'].values:
-                member = members_df.loc[members_df['ID']==member_id].iloc[0]
-                name_edit = st.text_input("Full Name", member['Name'], key=f"edit_name_{member_id}")
-                phone_edit = st.text_input("Phone", member['Phone'], key=f"edit_phone_{member_id}")
-                mtype_edit = st.selectbox("Membership Type", ['Monthly','Quarterly','Yearly'],
-                                          index=['Monthly','Quarterly','Yearly'].index(member['Membership Type']),
-                                          key=f"edit_mtype_{member_id}")
-                join_edit = st.date_input("Join Date", member['Join Date'].date(), key=f"edit_join_{member_id}")
-                if mtype_edit=='Monthly':
-                    expiry_edit = join_edit + datetime.timedelta(days=30)
-                elif mtype_edit=='Quarterly':
-                    expiry_edit = join_edit + datetime.timedelta(days=90)
-                else:
-                    expiry_edit = join_edit + datetime.timedelta(days=365)
-                if st.button("Save Changes", key=f"save_{member_id}"):
-                    members_df.loc[members_df['ID']==member_id, ['Name','Phone','Membership Type','Join Date','Expiry Date']] = [name_edit, phone_edit, mtype_edit, join_edit, expiry_edit]
-                    save_data(members_df)
-                    st.success(f"Member ID {member_id} updated successfully!")
+        member_id_input = st.number_input("Enter Member ID to Edit", min_value=1, step=1, key="edit_member_id")
+        
+        if member_id_input in members_df['ID'].values:
+            member = members_df.loc[members_df['ID'] == member_id_input].iloc[0]
+            name_edit = st.text_input("Full Name", member['Name'], key=f"edit_name_{member_id_input}")
+            phone_edit = st.text_input("Phone", member['Phone'], key=f"edit_phone_{member_id_input}")
+            mtype_edit = st.selectbox("Membership Type", ['Monthly','Quarterly','Yearly'],
+                                      index=['Monthly','Quarterly','Yearly'].index(member['Membership Type']),
+                                      key=f"edit_mtype_{member_id_input}")
+            join_edit = st.date_input("Join Date", member['Join Date'].date(), key=f"edit_join_{member_id_input}")
+            
+            # calculate expiry
+            if mtype_edit == 'Monthly':
+                expiry_edit = join_edit + datetime.timedelta(days=30)
+            elif mtype_edit == 'Quarterly':
+                expiry_edit = join_edit + datetime.timedelta(days=90)
             else:
-                st.warning("Member ID not found")
-
+                expiry_edit = join_edit + datetime.timedelta(days=365)
+            
+            if st.button("Save Changes", key=f"save_{member_id_input}"):
+                members_df.loc[members_df['ID'] == member_id_input, ['Name','Phone','Membership Type','Join Date','Expiry Date']] = [
+                    name_edit, phone_edit, mtype_edit, join_edit, expiry_edit
+                ]
+                save_data(members_df)
+                st.success(f"Member ID {member_id_input} updated successfully!")
+        else:
+            st.info("Enter a valid Member ID to edit.")
+    
+    # --- Display Members ---
     st.subheader("All Members")
     if not members_df.empty:
         st.dataframe(members_df.sort_values('ID'))
@@ -137,16 +141,22 @@ def member_management(members_df):
 
 # ---------------- REMINDERS ----------------
 def reminders_popup(members_df):
-    if members_df.empty:
-        return
-    now = get_ist_time().date()
+    st.header("Membership Reminders")
+    today = get_ist_time().date()
     df = members_df.copy()
-    df['Days Left'] = (df['Expiry Date'].dt.date - now).apply(lambda x: x.days)
+    df['Days Left'] = (df['Expiry Date'].dt.date - today).apply(lambda x: x.days)
     
-    expiring = df[df['Days Left'] <= 30]
-    if not expiring.empty:
-        st.warning("Memberships expiring soon or expired!")
-        st.dataframe(expiring[['ID','Name','Expiry Date','Days Left']])
+    # Expired
+    expired = df[df['Days Left'] < 0]
+    if not expired.empty:
+        st.warning("Expired Memberships:")
+        st.dataframe(expired)
+    
+    # Expiring Soon
+    soon = df[(df['Days Left'] >=0) & (df['Days Left'] <=30)]
+    if not soon.empty:
+        st.info("Memberships Expiring in 30 Days:")
+        st.dataframe(soon)
 
 # ---------------- MAIN ----------------
 def main():
@@ -157,10 +167,12 @@ def main():
         sidebar()
         if 'members_df' not in st.session_state:
             st.session_state['members_df'] = load_data()
+        
+        # Show reminders to both staff and owner
         reminders_popup(st.session_state['members_df'])
+        
         st.session_state['members_df'] = member_management(st.session_state['members_df'])
     else:
         login()
 
-if __name__ == "__main__":
-    main()
+main()
