@@ -14,19 +14,24 @@ STAFF_CREDENTIALS = {"staff1": "staff123", "staff2": "staff456"}
 
 # ---------------- UTILITIES ----------------
 def get_ist_time():
+    """Return current time in Asia/Kolkata timezone"""
     return datetime.datetime.now(IST)
+
+def format_time(dt):
+    """Return formatted time as 12-hour with AM/PM"""
+    return dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             members_df = pd.read_excel(DB_FILE)
             if not members_df.empty:
-                members_df['Join Date'] = pd.to_datetime(members_df['Join Date']).dt.date
-                members_df['Expiry Date'] = pd.to_datetime(members_df['Expiry Date']).dt.date
+                members_df['Join Time'] = pd.to_datetime(members_df['Join Time'])
+                members_df['Expiry Time'] = pd.to_datetime(members_df['Expiry Time'])
                 return members_df
         except Exception as e:
             st.warning(f"Error loading data: {e}")
-    return pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Date','Expiry Date'])
+    return pd.DataFrame(columns=['ID','Name','Phone','Membership Type','Join Time','Expiry Time'])
 
 def save_data(members_df):
     with pd.ExcelWriter(DB_FILE, engine='openpyxl') as writer:
@@ -72,14 +77,14 @@ def member_management(members_df):
             name = st.text_input("Full Name")
             phone = st.text_input("Phone")
             mtype = st.selectbox("Membership Type", ['Monthly', 'Quarterly', 'Yearly'])
-            join_date = get_ist_time().date()
+            join_time = get_ist_time()
 
             if mtype == 'Monthly':
-                expiry_date = join_date + datetime.timedelta(days=30)
+                expiry_time = join_time + datetime.timedelta(days=30)
             elif mtype == 'Quarterly':
-                expiry_date = join_date + datetime.timedelta(days=90)
+                expiry_time = join_time + datetime.timedelta(days=90)
             else:
-                expiry_date = join_date + datetime.timedelta(days=365)
+                expiry_time = join_time + datetime.timedelta(days=365)
 
             if st.button("Add Member"):
                 if not name or not phone:
@@ -90,8 +95,8 @@ def member_management(members_df):
                         'Name': name,
                         'Phone': phone,
                         'Membership Type': mtype,
-                        'Join Date': join_date,
-                        'Expiry Date': expiry_date
+                        'Join Time': join_time,
+                        'Expiry Time': expiry_time
                     }])
                     members_df = pd.concat([members_df, new_member], ignore_index=True)
                     save_data(members_df)
@@ -101,7 +106,10 @@ def member_management(members_df):
     st.subheader("📋 Members List")
 
     if not members_df.empty:
-        st.dataframe(members_df.sort_values('ID'))
+        df_display = members_df.copy()
+        df_display['Join Time'] = df_display['Join Time'].apply(format_time)
+        df_display['Expiry Time'] = df_display['Expiry Time'].apply(format_time)
+        st.dataframe(df_display.sort_values('ID'))
 
         if role == 'owner':
             st.markdown("### ✏️ Edit / Delete Member")
@@ -110,15 +118,18 @@ def member_management(members_df):
                 member_row = members_df[members_df['ID'] == selected_id].iloc[0]
                 new_name = st.text_input("Edit Name", member_row['Name'])
                 new_phone = st.text_input("Edit Phone", member_row['Phone'])
-                new_mtype = st.selectbox("Edit Membership Type", ['Monthly', 'Quarterly', 'Yearly'], 
+                new_mtype = st.selectbox("Edit Membership Type", 
+                                         ['Monthly', 'Quarterly', 'Yearly'], 
                                          index=['Monthly', 'Quarterly', 'Yearly'].index(member_row['Membership Type']))
-                new_join = st.date_input("Edit Join Date", member_row['Join Date'])
-                new_expiry = st.date_input("Edit Expiry Date", member_row['Expiry Date'])
+                new_join = st.date_input("Edit Join Date", member_row['Join Time'].date())
+                new_expiry = st.date_input("Edit Expiry Date", member_row['Expiry Time'].date())
 
                 if st.button("Update Member"):
                     members_df.loc[members_df['ID'] == selected_id, 
-                                   ['Name','Phone','Membership Type','Join Date','Expiry Date']] = [
-                        new_name, new_phone, new_mtype, new_join, new_expiry
+                                   ['Name','Phone','Membership Type','Join Time','Expiry Time']] = [
+                        new_name, new_phone, new_mtype,
+                        datetime.datetime.combine(new_join, member_row['Join Time'].time()),
+                        datetime.datetime.combine(new_expiry, member_row['Expiry Time'].time())
                     ]
                     save_data(members_df)
                     st.success("✅ Member updated successfully")
@@ -141,19 +152,19 @@ def reminders_popup(members_df):
     if members_df.empty:
         return
 
-    today = get_ist_time().date()
-    members_df['Days Left'] = (members_df['Expiry Date'] - today).apply(lambda x: x.days)
+    now = get_ist_time()
+    members_df['Days Left'] = (members_df['Expiry Time'].dt.date - now.date()).apply(lambda x: x.days)
 
     expiring_soon = members_df[members_df['Days Left'].between(0, 7)]
     expired = members_df[members_df['Days Left'] < 0]
 
     if not expired.empty:
         st.warning("⚠️ Some memberships have **expired!**")
-        st.dataframe(expired[['ID','Name','Phone','Expiry Date','Days Left']])
+        st.dataframe(expired[['ID','Name','Phone','Membership Type','Expiry Time','Days Left']])
 
     if not expiring_soon.empty:
         st.info("📅 Memberships expiring **within 7 days**:")
-        st.dataframe(expiring_soon[['ID','Name','Phone','Expiry Date','Days Left']])
+        st.dataframe(expiring_soon[['ID','Name','Phone','Membership Type','Expiry Time','Days Left']])
 
 # ---------------- MAIN ----------------
 def main():
