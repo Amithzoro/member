@@ -21,20 +21,19 @@ def format_time(dt):
 
 # ---------------- DATABASE ----------------
 def load_data():
-    """Load data and fix missing columns if needed"""
+    """Load data and ensure all necessary columns exist"""
     cols = ['ID', 'Name', 'Phone', 'Membership Type', 'Join Time', 'Expiry Time']
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_excel(DB_FILE)
+            # Ensure all columns exist
             for c in cols:
                 if c not in df.columns:
-                    df[c] = None
-            df = df[cols]  # reorder
-            if not df.empty:
-                if 'Join Time' in df.columns:
-                    df['Join Time'] = pd.to_datetime(df['Join Time'], errors='coerce')
-                if 'Expiry Time' in df.columns:
-                    df['Expiry Time'] = pd.to_datetime(df['Expiry Time'], errors='coerce')
+                    df[c] = pd.NaT if "Time" in c else ""
+            df = df[cols]  # reorder columns
+            # Convert time columns
+            df['Join Time'] = pd.to_datetime(df['Join Time'], errors='coerce')
+            df['Expiry Time'] = pd.to_datetime(df['Expiry Time'], errors='coerce')
             return df
         except Exception as e:
             st.warning(f"Error reading file: {e}")
@@ -53,10 +52,10 @@ def login_page():
     if st.button("Login"):
         if username == OWNER_USERNAME and password == OWNER_PASSWORD:
             st.session_state.update({'logged_in': True, 'role': 'owner', 'user': username})
-            st.rerun()
+            st.experimental_rerun()
         elif username in STAFF_CREDENTIALS and password == STAFF_CREDENTIALS[username]:
             st.session_state.update({'logged_in': True, 'role': 'staff', 'user': username})
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("❌ Invalid username or password")
 
@@ -66,14 +65,14 @@ def sidebar():
     st.sidebar.write(f"**Role:** {st.session_state['role'].capitalize()}")
     if st.sidebar.button("Logout"):
         st.session_state.clear()
-        st.rerun()
+        st.experimental_rerun()
 
 # ---------------- MEMBER MANAGEMENT ----------------
 def member_management(df):
     st.header("👥 Member Management")
     role = st.session_state['role']
 
-    # Add members (both can)
+    # Add members (both owner and staff can add)
     with st.expander("➕ Add New Member"):
         next_id = int(df['ID'].max() + 1) if not df.empty else 1
         name = st.text_input("Full Name")
@@ -103,15 +102,20 @@ def member_management(df):
                 df = pd.concat([df, new], ignore_index=True)
                 save_data(df)
                 st.success(f"✅ Added {name}")
-                st.rerun()
+                st.experimental_rerun()
 
     st.subheader("📋 Members List")
     if not df.empty:
         df_display = df.copy()
+        # Ensure time columns exist
+        for col in ['Join Time', 'Expiry Time']:
+            if col not in df_display.columns:
+                df_display[col] = pd.NaT
         df_display['Join Time'] = df_display['Join Time'].apply(lambda x: format_time(x) if pd.notnull(x) else "")
         df_display['Expiry Time'] = df_display['Expiry Time'].apply(lambda x: format_time(x) if pd.notnull(x) else "")
         st.dataframe(df_display.sort_values('ID'))
 
+        # Owner can edit
         if role == 'owner':
             st.markdown("### ✏️ Edit / Delete Member")
             ids = df['ID'].dropna().astype(int).tolist()
@@ -121,20 +125,20 @@ def member_management(df):
                     row = df.loc[df['ID'] == selected_id].iloc[0]
                     new_name = st.text_input("Edit Name", row['Name'])
                     new_phone = st.text_input("Edit Phone", row['Phone'])
-                    new_type = st.selectbox("Edit Type", ['Monthly', 'Quarterly', 'Yearly'], 
+                    new_type = st.selectbox("Edit Type", ['Monthly', 'Quarterly', 'Yearly'],
                                             index=['Monthly','Quarterly','Yearly'].index(row['Membership Type']))
 
                     if st.button("Update"):
                         df.loc[df['ID']==selected_id, ['Name','Phone','Membership Type']] = [new_name,new_phone,new_type]
                         save_data(df)
                         st.success("✅ Updated successfully")
-                        st.rerun()
+                        st.experimental_rerun()
 
                     if st.button("Delete"):
                         df = df[df['ID'] != selected_id]
                         save_data(df)
                         st.success("🗑️ Deleted successfully")
-                        st.rerun()
+                        st.experimental_rerun()
             else:
                 st.info("No members to edit")
     else:
@@ -143,8 +147,11 @@ def member_management(df):
 
 # ---------------- REMINDERS ----------------
 def reminders_popup(df):
-    if df.empty or 'Expiry Time' not in df.columns:
+    if df.empty:
         return
+    for col in ['Join Time', 'Expiry Time']:
+        if col not in df.columns:
+            df[col] = pd.NaT
     now = get_ist_time()
     df['Days Left'] = (df['Expiry Time'].dt.date - now.date()).apply(lambda x: x.days if pd.notnull(x) else None)
     expired = df[df['Days Left'] < 0]
