@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import os
 
-# ✅ Excel file in app folder (writable)
-EXCEL_FILE = "members.xlsx"
+# ✅ Use data folder in container
+os.makedirs("data", exist_ok=True)
+EXCEL_FILE = "data/members.xlsx"
 
-# --- Required columns for members ---
+# --- Required columns ---
 required_cols = ["Member_Name", "Join_Date", "Expiry_Date", "Amount"]
 
 # --- Load or create members Excel file ---
@@ -24,7 +26,7 @@ USERS = {
     "staff1": {"password": "staff@123", "role": "Staff"},
 }
 
-# --- Session state setup ---
+# --- Session state ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "role" not in st.session_state:
@@ -42,7 +44,7 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.role = USERS[username]["role"]
             st.session_state.username = username
-            st.success(f"✅ Welcome, {username}! You are logged in as {st.session_state.role}.")
+            st.success(f"✅ Welcome, {username}! Role: {st.session_state.role}")
             st.rerun()
         else:
             st.error("❌ Invalid username or password!")
@@ -57,7 +59,7 @@ if st.session_state.logged_in:
         st.session_state.clear()
         st.rerun()
 
-    # --- Expiry reminder for members within 7 days ---
+    # --- Expiry reminders ---
     if not members_df.empty:
         try:
             members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
@@ -71,7 +73,6 @@ if st.session_state.logged_in:
         except Exception:
             st.info("ℹ️ Some expiry dates may be missing or invalid.")
 
-    # --- Dashboard Header ---
     st.header(f"{role} Dashboard")
 
     # --- View Members ---
