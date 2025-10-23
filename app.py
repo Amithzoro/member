@@ -8,10 +8,10 @@ import os
 EXCEL_FILE = "members.xlsx"
 IST = pytz.timezone("Asia/Kolkata")
 
-# Roles
+# Roles with your custom credentials
 USERS = {
-    "owner": {"password": "ownerpass", "role": "Owner"},
-    "staff": {"password": "staffpass", "role": "Staff"}
+    "vineeth": {"password": "panda@2006", "role": "Owner"},
+    "rahul": {"password": "staff123", "role": "Staff"}
 }
 
 # Duration mapping
@@ -47,7 +47,7 @@ def register_member(df, username, duration_days=30, amount=0):
         "Member_Name": username,
         "Start_Date": start_date,
         "Expiry_Date": expiry_date,
-        "Registration_Time_IST": now_ist,
+        "Registration_Time_IST": now_ist,  # full IST timestamp
         "Amount": amount
     }
     df = pd.concat([df, pd.DataFrame([new_member])], ignore_index=True)
