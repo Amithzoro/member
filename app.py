@@ -5,7 +5,7 @@ from dateutil.relativedelta import relativedelta
 import pytz
 import os
 
-# ----------------------- Constants -----------------------
+# ---------------- Constants ----------------
 IST = pytz.timezone("Asia/Kolkata")
 EXCEL_FILE = "data/members.xlsx"
 DURATION_MAP = {"Monthly":1, "Quarterly":3, "Half-Yearly":6, "Yearly":12}
@@ -17,7 +17,10 @@ USERS = {
 
 REQUIRED_COLUMNS = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]
 
-# ----------------------- Helpers -----------------------
+# ---------------- Helpers ----------------
+def get_ist_now():
+    return datetime.now(IST)
+
 def load_members():
     os.makedirs("data", exist_ok=True)
     try:
@@ -33,14 +36,10 @@ def load_members():
 
 def save_members(df):
     df_copy = df.copy()
-    # Convert dates to strings to avoid Excel issues
     df_copy["Start_Date"] = pd.to_datetime(df_copy["Start_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df_copy["Expiry_Date"] = pd.to_datetime(df_copy["Expiry_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
     os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
     df_copy.to_excel(EXCEL_FILE, index=False)
-
-def get_ist_now():
-    return datetime.now(IST)
 
 def add_member(df, name, start_date, duration, amount):
     auto_expiry = start_date + relativedelta(months=DURATION_MAP[duration])
@@ -87,14 +86,15 @@ def staff_update_amount(df, member_name, amount):
     return df
 
 def get_expiring_members(df, days=7):
-    now = get_ist_now()
+    now = get_ist_now().replace(tzinfo=None)  # timezone-naive
     expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce")
+    expiry_dates = expiry_dates.dt.tz_localize(None)  # make series timezone-naive
     valid_mask = expiry_dates.notna()
     soon_expire_mask = valid_mask & ((expiry_dates - now).dt.days <= days)
     soon_expire = df[soon_expire_mask].copy()
     return soon_expire
 
-# ----------------------- Streamlit App -----------------------
+# ---------------- Streamlit App ----------------
 def main():
     st.title("🏋️ Gym Membership Management System (IST)")
 
@@ -116,7 +116,7 @@ def main():
             else:
                 st.error("❌ Invalid username or password!")
         if not st.session_state.logged_in:
-            st.stop()  # Stop until login succeeds
+            st.stop()
 
     # --- Load members ---
     members_df = load_members()
@@ -142,7 +142,7 @@ def main():
     else:
         st.dataframe(members_df[["Member_Name","Start_Date","Expiry_Date","Amount","Month","Year","Duration","Timestamp"]])
 
-    # --- Add Member (Owner & Staff) ---
+    # --- Add Member ---
     st.subheader("➕ Add New Member")
     col1, col2 = st.columns(2)
     with col1:
