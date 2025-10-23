@@ -33,14 +33,11 @@ def load_members():
 
 def save_members(df):
     df_copy = df.copy()
-    # Convert dates to timezone-naive datetime
-    for col in ["Start_Date", "Expiry_Date"]:
-        df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce").dt.tz_localize(None)
-    try:
-        os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
-        df_copy.to_excel(EXCEL_FILE, index=False)
-    except Exception as e:
-        st.error(f"❌ Failed to save Excel file: {e}")
+    # Convert dates to strings to avoid Excel issues
+    df_copy["Start_Date"] = pd.to_datetime(df_copy["Start_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df_copy["Expiry_Date"] = pd.to_datetime(df_copy["Expiry_Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
+    df_copy.to_excel(EXCEL_FILE, index=False)
 
 def get_ist_now():
     return datetime.now(IST)
@@ -70,7 +67,6 @@ def update_member(df, original_name, new_name, start_date, duration, amount, exp
     month = start_date.strftime("%B")
     year = start_date.year
     timestamp = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
-    
     df.loc[df["Member_Name"]==original_name, ["Member_Name","Start_Date","Expiry_Date","Amount","Month","Year","Duration","Timestamp"]] = [
         new_name, start_date.strftime("%Y-%m-%d"), final_expiry.strftime("%Y-%m-%d"),
         amount, month, year, duration, timestamp
@@ -92,9 +88,9 @@ def staff_update_amount(df, member_name, amount):
 
 def get_expiring_members(df, days=7):
     now = get_ist_now()
-    expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(None)
+    expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce")
     valid_mask = expiry_dates.notna()
-    soon_expire_mask = valid_mask & ((expiry_dates - now) <= pd.Timedelta(days=days))
+    soon_expire_mask = valid_mask & ((expiry_dates - now).dt.days <= days)
     soon_expire = df[soon_expire_mask].copy()
     return soon_expire
 
