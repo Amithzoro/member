@@ -87,7 +87,10 @@ if st.session_state.logged_in:
     member_name = st.text_input("Member Name")
     amount = st.number_input("Amount Paid", min_value=0)
     start_date = st.date_input("Membership Start Date", value=datetime.now())
-    expiry_date = st.date_input("Expiry Date", value=datetime.now() + timedelta(days=30))
+    
+    # Automatic expiry = start_date + 30 days
+    expiry_date = start_date + timedelta(days=30)
+    st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')}")
 
     if st.button("Add Member"):
         if member_name:
@@ -118,17 +121,19 @@ if st.session_state.logged_in:
                 "Edit Start Date",
                 pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else datetime.now()
             )
-            new_expiry = st.date_input(
-                "Edit Expiry Date",
-                pd.to_datetime(row["Expiry_Date"]) if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
-            )
+
+            # Auto-update expiry based on start date
+            auto_expiry = new_start + timedelta(days=30)
+            st.write(f"✅ Expiry Date automatically set to: {auto_expiry.strftime('%Y-%m-%d')}")
+            new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry)
+            final_expiry = new_expiry_override if new_expiry_override else auto_expiry
 
             if st.button("💾 Save Changes"):
                 members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date"]] = [
                     new_name,
                     new_amount,
                     new_start.strftime("%Y-%m-%d"),
-                    new_expiry.strftime("%Y-%m-%d")
+                    final_expiry.strftime("%Y-%m-%d")
                 ]
                 members_df.to_excel(EXCEL_FILE, index=False)
                 st.success(f"✅ Updated '{selected_member}' successfully!")
