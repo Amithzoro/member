@@ -13,7 +13,7 @@ os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
 
 # --- Required columns ---
-required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]
+required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp", "Expiry_Checked_Timestamp"]
 
 # --- Load or create members Excel file ---
 try:
@@ -77,8 +77,10 @@ if st.session_state.logged_in:
             ((members_df["Expiry_Date_IST"] - now_ist) <= pd.Timedelta(days=7))
         ]
         if not soon_expiring.empty:
+            # Update Expiry_Checked_Timestamp
+            members_df.loc[soon_expiring.index, "Expiry_Checked_Timestamp"] = now_ist.strftime("%Y-%m-%d %H:%M:%S")
             st.warning("⚠️ Members expiring within 7 days (IST):")
-            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]])
+            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp", "Expiry_Checked_Timestamp"]])
 
     st.header(f"{role} Dashboard")
 
@@ -120,7 +122,8 @@ if st.session_state.logged_in:
                 "Month": month,
                 "Year": year,
                 "Duration": duration_option,
-                "Timestamp": timestamp
+                "Timestamp": timestamp,
+                "Expiry_Checked_Timestamp": ""
             }
             members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
 
@@ -135,10 +138,8 @@ if st.session_state.logged_in:
 
             st.success(f"✅ Member '{member_name}' added successfully!")
             st.rerun()
-        else:
-            st.warning("⚠️ Please enter a member name.")
 
-    # --- Edit/Delete Members (Owner Only) ---
+    # --- Owner: Edit/Delete Members ---
     if role == "Owner" and not members_df.empty:
         st.subheader("✏️ Edit or Delete Member")
         member_names = members_df["Member_Name"].tolist()
@@ -206,10 +207,8 @@ if st.session_state.logged_in:
 
                 st.warning(f"❌ Deleted member '{selected_member}'")
                 st.rerun()
-        else:
-            st.info("No members available to edit or delete.")
 
-    # --- Staff can update amount only ---
+    # --- Staff: Update Amount Only ---
     if role == "Staff" and not members_df.empty:
         st.subheader("💰 Update Member Amount")
         member_names = members_df["Member_Name"].tolist()
