@@ -4,10 +4,11 @@ from datetime import datetime, timedelta
 import pytz
 import os
 
+# Constants
 EXCEL_FILE = "members.xlsx"
 IST = pytz.timezone("Asia/Kolkata")
 
-# Roles
+# Roles and credentials
 USERS = {
     "vineeth": {"password": "panda@2006", "role": "Owner"},
     "rahul": {"password": "staff123", "role": "Staff"}
@@ -20,6 +21,7 @@ if not os.path.exists(EXCEL_FILE):
     df = pd.DataFrame(columns=["Member_Name", "Start_Date", "Expiry_Date", "Registration_Time_IST", "Amount"])
     df.to_excel(EXCEL_FILE, index=False)
 
+# --- Helper Functions ---
 def get_ist_now():
     return datetime.now(IST)
 
@@ -32,34 +34,33 @@ def save_members(df):
 def get_expiring_members(df, days=7):
     today = get_ist_now().date()
     expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.date
-    valid_mask = expiry_dates.notna()
-    soon_expire_mask = valid_mask & ((expiry_dates - today).apply(lambda x: x.days) <= days)
+    soon_expire_mask = expiry_dates.notna() & ((expiry_dates - today).apply(lambda x: x.days) <= days)
     return df[soon_expire_mask].copy()
 
-def register_member(df, username, duration_days=30, amount=0):
-    now_ist = get_ist_now()
-    start_date = now_ist.date()
+def add_member(df, name, duration_days, amount):
+    now = get_ist_now()
+    start_date = now.date()
     expiry_date = start_date + timedelta(days=duration_days)
     new_member = {
-        "Member_Name": username,
+        "Member_Name": name,
         "Start_Date": start_date,
         "Expiry_Date": expiry_date,
-        "Registration_Time_IST": now_ist,
+        "Registration_Time_IST": now,
         "Amount": amount
     }
     df = pd.concat([df, pd.DataFrame([new_member])], ignore_index=True)
     save_members(df)
     return df
 
-def delete_member(df, member_name):
-    df = df[df["Member_Name"] != member_name]
+def delete_member(df, name):
+    df = df[df["Member_Name"] != name]
     save_members(df)
     return df
 
 # --- Streamlit App ---
 st.title("Gym Membership System")
 
-# Login
+# --- Login Section ---
 st.sidebar.subheader("Login")
 username = st.sidebar.text_input("Username", key="login_user")
 password = st.sidebar.text_input("Password", type="password", key="login_pass")
@@ -75,7 +76,7 @@ if login_btn:
 
         df = st.session_state.members_df
 
-        # --- Expiring Members Reminder ---
+        # --- Expiry Reminder ---
         expiring_df = get_expiring_members(df, days=7)
         if not expiring_df.empty:
             st.warning("⚠️ Members expiring within 7 days:")
@@ -88,8 +89,8 @@ if login_btn:
         amount = st.number_input("Amount Paid", min_value=0, value=0, key="add_amount")
         if st.button("Add Member", key="add_btn"):
             if new_name:
-                st.session_state.members_df = register_member(df, new_name, DURATION_MAP[duration_option], amount)
-                st.success(f"✅ Member '{new_name}' added with {duration_option} duration.")
+                st.session_state.members_df = add_member(df, new_name, DURATION_MAP[duration_option], amount)
+                st.success(f"✅ Member '{new_name}' added ({duration_option})")
             else:
                 st.warning("Please enter a member name.")
 
