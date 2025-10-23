@@ -113,10 +113,10 @@ def main():
                 st.session_state.role = USERS[username]["role"]
                 st.session_state.username = username
                 st.success(f"✅ Welcome, {username}! Role: {st.session_state.role}")
-                return
             else:
                 st.error("❌ Invalid username or password!")
-        return
+        if not st.session_state.logged_in:
+            st.stop()  # Stop until login succeeds
 
     # --- Load members ---
     members_df = load_members()
@@ -126,7 +126,7 @@ def main():
     st.sidebar.success(f"Logged in as: {role}")
     if st.sidebar.button("🚪 Logout"):
         st.session_state.clear()
-        return
+        st.experimental_rerun()
 
     # --- Expiry reminder ---
     if not members_df.empty:
