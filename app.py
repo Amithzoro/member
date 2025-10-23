@@ -5,227 +5,196 @@ from dateutil.relativedelta import relativedelta
 import pytz
 import os
 
-# --- IST Timezone ---
+# ----------------------- Constants -----------------------
 IST = pytz.timezone("Asia/Kolkata")
-
-# --- Ensure data folder exists ---
-os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
+DURATION_MAP = {"Monthly":1, "Quarterly":3, "Half-Yearly":6, "Yearly":12}
 
-# --- Required columns ---
-required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]
-
-# --- Load or create members Excel file ---
-try:
-    members_df = pd.read_excel(EXCEL_FILE)
-    for col in required_cols:
-        if col not in members_df.columns:
-            members_df[col] = ""
-except FileNotFoundError:
-    members_df = pd.DataFrame(columns=required_cols)
-    members_df.to_excel(EXCEL_FILE, index=False)
-
-# --- Login credentials ---
 USERS = {
-    "vineeth": {"password": "panda@2006", "role": "Owner"},
-    "staff1": {"password": "staff@123", "role": "Staff"},
+    "vineeth": {"password":"panda@2006", "role":"Owner"},
+    "staff1": {"password":"staff@123", "role":"Staff"}
 }
 
-# --- Session state ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "role" not in st.session_state:
-    st.session_state.role = None
+REQUIRED_COLUMNS = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]
 
-# --- Login Page ---
-st.title("🏋️ Gym Membership Management System (IST)")
+# ----------------------- Helpers -----------------------
+def load_members():
+    os.makedirs("data", exist_ok=True)
+    try:
+        df = pd.read_excel(EXCEL_FILE)
+        for col in REQUIRED_COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
+        return df
+    except FileNotFoundError:
+        df = pd.DataFrame(columns=REQUIRED_COLUMNS)
+        df.to_excel(EXCEL_FILE, index=False)
+        return df
 
-if not st.session_state.logged_in:
-    username = st.text_input("Username", key="login_username")
-    password = st.text_input("Password", type="password", key="login_password")
+def save_members(df):
+    df_copy = df.copy()
+    for col in ["Start_Date","Expiry_Date"]:
+        df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce").dt.tz_localize(None)
+    df_copy.to_excel(EXCEL_FILE, index=False)
 
-    if st.button("Login", key="login_button"):
-        if username in USERS and USERS[username]["password"] == password:
-            st.session_state.logged_in = True
-            st.session_state.role = USERS[username]["role"]
-            st.session_state.username = username
-            st.success(f"✅ Welcome, {username}! Role: {st.session_state.role}")
-            st.rerun()
-        else:
-            st.error("❌ Invalid username or password!")
+def get_ist_now():
+    return datetime.now(IST)
 
-# --- Dashboard after login ---
-if st.session_state.logged_in:
+def add_member(df, name, start_date, duration, amount):
+    auto_expiry = start_date + relativedelta(months=DURATION_MAP[duration])
+    month = start_date.strftime("%B")
+    year = start_date.year
+    timestamp = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+    new_row = {
+        "Member_Name": name,
+        "Start_Date": start_date.strftime("%Y-%m-%d"),
+        "Expiry_Date": auto_expiry.strftime("%Y-%m-%d"),
+        "Amount": amount,
+        "Month": month,
+        "Year": year,
+        "Duration": duration,
+        "Timestamp": timestamp
+    }
+    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    save_members(df)
+    return df, auto_expiry
+
+def update_member(df, original_name, new_name, start_date, duration, amount, expiry_override=None):
+    auto_expiry = start_date + relativedelta(months=DURATION_MAP[duration])
+    final_expiry = expiry_override if expiry_override else auto_expiry
+    month = start_date.strftime("%B")
+    year = start_date.year
+    timestamp = get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    df.loc[df["Member_Name"]==original_name, ["Member_Name","Start_Date","Expiry_Date","Amount","Month","Year","Duration","Timestamp"]] = [
+        new_name, start_date.strftime("%Y-%m-%d"), final_expiry.strftime("%Y-%m-%d"),
+        amount, month, year, duration, timestamp
+    ]
+    save_members(df)
+    return df
+
+def delete_member(df, member_name):
+    df = df[df["Member_Name"] != member_name]
+    save_members(df)
+    return df
+
+def staff_update_amount(df, member_name, amount):
+    df.loc[df["Member_Name"]==member_name, ["Amount","Timestamp"]] = [
+        amount, get_ist_now().strftime("%Y-%m-%d %H:%M:%S")
+    ]
+    save_members(df)
+    return df
+
+def get_expiring_members(df, days=7):
+    now = get_ist_now()
+    df["Expiry_Date_IST"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(IST, ambiguous='NaT', nonexistent='shift_forward')
+    soon_expire = df[(df["Expiry_Date_IST"].notnull()) & ((df["Expiry_Date_IST"] - now)<=pd.Timedelta(days=days))]
+    return soon_expire
+
+# ----------------------- Streamlit App -----------------------
+def main():
+    st.title("🏋️ Gym Membership Management System (IST)")
+
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.role = None
+        st.session_state.username = None
+
+    # --- Login ---
+    if not st.session_state.logged_in:
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if username in USERS and USERS[username]["password"] == password:
+                st.session_state.logged_in = True
+                st.session_state.role = USERS[username]["role"]
+                st.session_state.username = username
+                st.success(f"✅ Welcome, {username}! Role: {st.session_state.role}")
+                st.experimental_rerun()
+            else:
+                st.error("❌ Invalid username or password!")
+        return
+
+    # --- Load members ---
+    members_df = load_members()
     role = st.session_state.role
-    username = st.session_state.username
 
+    # --- Sidebar ---
     st.sidebar.success(f"Logged in as: {role}")
-    if st.sidebar.button("🚪 Logout", key="logout_button"):
+    if st.sidebar.button("🚪 Logout"):
         st.session_state.clear()
-        st.rerun()
+        st.experimental_rerun()
 
-    now_ist = datetime.now(IST)
-
-    # --- Expiry reminders in IST ---
+    # --- Expiry reminder ---
     if not members_df.empty:
-        members_df["Expiry_Date_IST"] = pd.to_datetime(
-            members_df["Expiry_Date"], errors="coerce"
-        ).dt.tz_localize('Asia/Kolkata', ambiguous='NaT', nonexistent='shift_forward')
-
-        soon_expiring = members_df[
-            (members_df["Expiry_Date_IST"].notnull()) &
-            ((members_df["Expiry_Date_IST"] - now_ist) <= pd.Timedelta(days=7))
-        ]
-        if not soon_expiring.empty:
+        expiring = get_expiring_members(members_df)
+        if not expiring.empty:
             st.warning("⚠️ Members expiring within 7 days (IST):")
-            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]])
-
-    st.header(f"{role} Dashboard")
+            st.dataframe(expiring[["Member_Name","Start_Date","Expiry_Date","Amount","Month","Year","Duration","Timestamp"]])
 
     # --- View Members ---
     st.subheader("👥 Member List")
     if members_df.empty:
         st.info("No members found yet.")
     else:
-        st.dataframe(members_df)
-
-    # --- Membership Duration Options ---
-    duration_map = {
-        "Monthly": 1,
-        "Quarterly": 3,
-        "Half-Yearly": 6,
-        "Yearly": 12
-    }
+        st.dataframe(members_df[["Member_Name","Start_Date","Expiry_Date","Amount","Month","Year","Duration","Timestamp"]])
 
     # --- Add Member (Owner & Staff) ---
     st.subheader("➕ Add New Member")
-    member_name = st.text_input("Member Name", key="add_member_name")
-    amount = st.number_input("Amount Paid", min_value=0, key="add_amount")
-    start_date = st.date_input("Membership Start Date", value=now_ist.date(), key="add_start_date")
-    duration_option = st.selectbox("Membership Duration", list(duration_map.keys()), key="add_duration")
-
-    expiry_date = start_date + relativedelta(months=duration_map[duration_option])
-    month = start_date.strftime("%B")
-    year = start_date.year
-    st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')} (Month: {month}, Year: {year})")
-
-    if st.button("Add Member", key="add_member_button"):
-        if member_name:
-            timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-            new_row = {
-                "Member_Name": member_name,
-                "Start_Date": start_date.strftime("%Y-%m-%d"),
-                "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
-                "Amount": amount,
-                "Month": month,
-                "Year": year,
-                "Duration": duration_option,
-                "Timestamp": timestamp
-            }
-            members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
-
-            # --- Save Excel safely ---
-            save_df = members_df.copy()
-            if "Expiry_Date_IST" in save_df.columns:
-                save_df = save_df.drop(columns=["Expiry_Date_IST"])
-            for col in ["Start_Date", "Expiry_Date"]:
-                if col in save_df.columns:
-                    save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
-            save_df.to_excel(EXCEL_FILE, index=False)
-
-            st.success(f"✅ Member '{member_name}' added successfully!")
-            st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        name = st.text_input("Member Name", key="add_name")
+        amount = st.number_input("Amount Paid", min_value=0, key="add_amount")
+    with col2:
+        start_date = st.date_input("Membership Start Date", value=get_ist_now().date(), key="add_start")
+        duration = st.selectbox("Membership Duration", list(DURATION_MAP.keys()), key="add_duration")
+    
+    if st.button("Add Member"):
+        if name in members_df["Member_Name"].tolist():
+            st.warning("Member name already exists!")
+        elif amount < 0:
+            st.warning("Amount must be >= 0")
+        else:
+            members_df, auto_expiry = add_member(members_df, name, start_date, duration, amount)
+            st.success(f"✅ Member '{name}' added with expiry {auto_expiry.strftime('%Y-%m-%d')}")
 
     # --- Owner: Edit/Delete Members ---
-    if role == "Owner" and not members_df.empty:
-        st.subheader("✏️ Edit or Delete Member")
-        member_names = members_df["Member_Name"].tolist()
-        if member_names:
-            selected_member = st.selectbox("Select Member", member_names, key="edit_select_member")
-            row = members_df[members_df["Member_Name"] == selected_member].iloc[0]
+    if role=="Owner" and not members_df.empty:
+        st.subheader("✏️ Edit/Delete Member")
+        member_list = members_df["Member_Name"].tolist()
+        selected_member = st.selectbox("Select Member", member_list, key="edit_select")
+        row = members_df[members_df["Member_Name"]==selected_member].iloc[0]
 
-            new_name = st.text_input("Edit Name", row["Member_Name"], key=f"edit_name_{selected_member}")
-            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]), key=f"edit_amount_{selected_member}")
-            new_start = st.date_input(
-                "Edit Start Date",
-                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else now_ist.date(),
-                key=f"edit_start_{selected_member}"
-            )
-            duration_option = st.selectbox(
-                "Membership Duration",
-                list(duration_map.keys()),
-                index=list(duration_map.keys()).index(row.get("Duration", "Monthly")),
-                key=f"edit_duration_{selected_member}"
-            )
+        col1, col2 = st.columns(2)
+        with col1:
+            new_name = st.text_input("Edit Name", row["Member_Name"], key="edit_name")
+            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]), key="edit_amount")
+        with col2:
+            new_start = st.date_input("Edit Start Date", pd.to_datetime(row["Start_Date"]), key="edit_start")
+            duration = st.selectbox("Membership Duration", list(DURATION_MAP.keys()), index=list(DURATION_MAP.keys()).index(row["Duration"]), key="edit_duration")
+            auto_expiry = new_start + relativedelta(months=DURATION_MAP[duration])
+            expiry_override = st.date_input("Override Expiry Date (Optional)", value=auto_expiry)
 
-            auto_expiry = new_start + relativedelta(months=duration_map[duration_option])
-            st.write(f"✅ Expiry Date automatically set to: {auto_expiry.strftime('%Y-%m-%d')}")
-            new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry, key=f"edit_expiry_{selected_member}")
-            final_expiry = new_expiry_override if new_expiry_override else auto_expiry
+        if st.button("💾 Save Changes"):
+            members_df = update_member(members_df, selected_member, new_name, new_start, duration, new_amount, expiry_override)
+            st.success(f"✅ Member '{new_name}' updated successfully")
+            st.experimental_rerun()
 
-            month = new_start.strftime("%B")
-            year = new_start.year
-
-            if st.button("💾 Save Changes", key=f"save_{selected_member}"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year", "Duration", "Timestamp"]] = [
-                    new_name,
-                    new_amount,
-                    new_start.strftime("%Y-%m-%d"),
-                    final_expiry.strftime("%Y-%m-%d"),
-                    month,
-                    year,
-                    duration_option,
-                    datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                ]
-
-                # --- Save Excel safely ---
-                save_df = members_df.copy()
-                if "Expiry_Date_IST" in save_df.columns:
-                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
-                for col in ["Start_Date", "Expiry_Date"]:
-                    if col in save_df.columns:
-                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
-                save_df.to_excel(EXCEL_FILE, index=False)
-
-                st.success(f"✅ Updated '{selected_member}' successfully!")
-                st.rerun()
-
-            if st.button("🗑 Delete Member", key=f"delete_{selected_member}"):
-                members_df = members_df[members_df["Member_Name"] != selected_member]
-
-                # --- Save Excel safely ---
-                save_df = members_df.copy()
-                if "Expiry_Date_IST" in save_df.columns:
-                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
-                for col in ["Start_Date", "Expiry_Date"]:
-                    if col in save_df.columns:
-                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
-                save_df.to_excel(EXCEL_FILE, index=False)
-
-                st.warning(f"❌ Deleted member '{selected_member}'")
-                st.rerun()
+        if st.button("🗑 Delete Member"):
+            members_df = delete_member(members_df, selected_member)
+            st.warning(f"❌ Member '{selected_member}' deleted")
+            st.experimental_rerun()
 
     # --- Staff: Update Amount Only ---
-    if role == "Staff" and not members_df.empty:
+    if role=="Staff" and not members_df.empty:
         st.subheader("💰 Update Member Amount")
-        member_names = members_df["Member_Name"].tolist()
-        if member_names:
-            selected_member = st.selectbox("Select Member to Update", member_names, key="staff_select_member")
-            new_amount = st.number_input("Enter New Amount", min_value=0, key=f"staff_amount_{selected_member}")
-            if st.button("Update Amount", key=f"staff_update_{selected_member}"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Amount", "Timestamp"]] = [
-                    new_amount,
-                    datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-                ]
+        member_list = members_df["Member_Name"].tolist()
+        selected_member = st.selectbox("Select Member to Update", member_list, key="staff_select")
+        new_amount = st.number_input("Enter New Amount", min_value=0, key="staff_amount")
+        if st.button("Update Amount"):
+            members_df = staff_update_amount(members_df, selected_member, new_amount)
+            st.success(f"✅ Amount updated for {selected_member}")
+            st.experimental_rerun()
 
-                # --- Save Excel safely ---
-                save_df = members_df.copy()
-                if "Expiry_Date_IST" in save_df.columns:
-                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
-                for col in ["Start_Date", "Expiry_Date"]:
-                    if col in save_df.columns:
-                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
-                save_df.to_excel(EXCEL_FILE, index=False)
-
-                st.success(f"✅ Updated amount for {selected_member}")
-                st.rerun()
+if __name__ == "__main__":
+    main()
