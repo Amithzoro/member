@@ -33,9 +33,14 @@ def load_members():
 
 def save_members(df):
     df_copy = df.copy()
-    for col in ["Start_Date","Expiry_Date"]:
+    # Convert dates to standard timezone-naive datetime
+    for col in ["Start_Date", "Expiry_Date"]:
         df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce").dt.tz_localize(None)
-    df_copy.to_excel(EXCEL_FILE, index=False)
+    try:
+        os.makedirs(os.path.dirname(EXCEL_FILE), exist_ok=True)
+        df_copy.to_excel(EXCEL_FILE, index=False)
+    except Exception as e:
+        st.error(f"❌ Failed to save Excel file: {e}")
 
 def get_ist_now():
     return datetime.now(IST)
@@ -87,7 +92,7 @@ def staff_update_amount(df, member_name, amount):
 
 def get_expiring_members(df, days=7):
     now = get_ist_now()
-    df["Expiry_Date_IST"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(IST, ambiguous='NaT', nonexistent='shift_forward')
+    df["Expiry_Date_IST"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(None)
     soon_expire = df[(df["Expiry_Date_IST"].notnull()) & ((df["Expiry_Date_IST"] - now)<=pd.Timedelta(days=days))]
     return soon_expire
 
