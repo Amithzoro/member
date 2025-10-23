@@ -2,7 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import pytz
 import os
+
+# --- IST Timezone ---
+IST = pytz.timezone("Asia/Kolkata")
 
 # --- Ensure data folder exists ---
 os.makedirs("data", exist_ok=True)
@@ -34,7 +38,7 @@ if "role" not in st.session_state:
     st.session_state.role = None
 
 # --- Login Page ---
-st.title("🏋️ Gym Membership Management System")
+st.title("🏋️ Gym Membership Management System (IST)")
 
 if not st.session_state.logged_in:
     username = st.text_input("Username")
@@ -60,19 +64,18 @@ if st.session_state.logged_in:
         st.session_state.clear()
         st.rerun()
 
-    # --- Expiry reminders ---
+    now_ist = datetime.now(IST)
+
+    # --- Expiry reminders in IST ---
     if not members_df.empty:
-        try:
-            members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
-            soon_expiring = members_df[
-                (members_df["Expiry_Date"].notnull()) &
-                (members_df["Expiry_Date"] - pd.Timestamp.now() <= pd.Timedelta(days=7))
-            ]
-            if not soon_expiring.empty:
-                st.warning("⚠️ Members expiring within 7 days:")
-                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]])
-        except Exception:
-            st.info("ℹ️ Some expiry dates may be missing or invalid.")
+        members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+        soon_expiring = members_df[
+            (members_df["Expiry_Date"].notnull()) &
+            (members_df["Expiry_Date"] - pd.Timestamp(now_ist) <= pd.Timedelta(days=7))
+        ]
+        if not soon_expiring.empty:
+            st.warning("⚠️ Members expiring within 7 days (IST):")
+            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]])
 
     st.header(f"{role} Dashboard")
 
@@ -95,9 +98,9 @@ if st.session_state.logged_in:
     st.subheader("➕ Add New Member")
     member_name = st.text_input("Member Name")
     amount = st.number_input("Amount Paid", min_value=0)
-    start_date = st.date_input("Membership Start Date", value=datetime.now())
+    start_date = st.date_input("Membership Start Date", value=now_ist.date())
     duration_option = st.selectbox("Membership Duration", list(duration_map.keys()))
-    
+
     # Calculate expiry based on duration
     expiry_date = start_date + relativedelta(months=duration_map[duration_option])
     month = start_date.strftime("%B")
@@ -134,7 +137,7 @@ if st.session_state.logged_in:
             new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
             new_start = st.date_input(
                 "Edit Start Date",
-                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else datetime.now()
+                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else now_ist.date()
             )
             duration_option = st.selectbox(
                 "Membership Duration",
