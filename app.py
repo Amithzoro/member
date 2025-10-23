@@ -8,7 +8,7 @@ os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
 
 # --- Required columns ---
-required_cols = ["Member_Name", "Join_Date", "Expiry_Date", "Amount"]
+required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount"]
 
 # --- Load or create members Excel file ---
 try:
@@ -69,7 +69,7 @@ if st.session_state.logged_in:
             ]
             if not soon_expiring.empty:
                 st.warning("⚠️ Members expiring within 7 days:")
-                st.dataframe(soon_expiring[["Member_Name", "Expiry_Date", "Amount"]])
+                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount"]])
         except Exception:
             st.info("ℹ️ Some expiry dates may be missing or invalid.")
 
@@ -86,13 +86,14 @@ if st.session_state.logged_in:
     st.subheader("➕ Add New Member")
     member_name = st.text_input("Member Name")
     amount = st.number_input("Amount Paid", min_value=0)
+    start_date = st.date_input("Membership Start Date", value=datetime.now())
     expiry_date = st.date_input("Expiry Date", value=datetime.now() + timedelta(days=30))
 
     if st.button("Add Member"):
         if member_name:
             new_row = {
                 "Member_Name": member_name,
-                "Join_Date": datetime.now().strftime("%Y-%m-%d"),
+                "Start_Date": start_date.strftime("%Y-%m-%d"),
                 "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
                 "Amount": amount,
             }
@@ -113,16 +114,21 @@ if st.session_state.logged_in:
 
             new_name = st.text_input("Edit Name", row["Member_Name"])
             new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
+            new_start = st.date_input(
+                "Edit Start Date",
+                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else datetime.now()
+            )
             new_expiry = st.date_input(
                 "Edit Expiry Date",
-                row["Expiry_Date"] if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
+                pd.to_datetime(row["Expiry_Date"]) if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
             )
 
             if st.button("💾 Save Changes"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Expiry_Date"]] = [
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date"]] = [
                     new_name,
                     new_amount,
-                    new_expiry.strftime("%Y-%m-%d"),
+                    new_start.strftime("%Y-%m-%d"),
+                    new_expiry.strftime("%Y-%m-%d")
                 ]
                 members_df.to_excel(EXCEL_FILE, index=False)
                 st.success(f"✅ Updated '{selected_member}' successfully!")
