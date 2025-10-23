@@ -68,10 +68,14 @@ if st.session_state.logged_in:
 
     # --- Expiry reminders in IST ---
     if not members_df.empty:
-        members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+        # Convert Expiry_Date to IST-aware datetime
+        members_df["Expiry_Date_IST"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce").dt.tz_localize(
+            'Asia/Kolkata', ambiguous='NaT', nonexistent='shift_forward'
+        )
+
         soon_expiring = members_df[
-            (members_df["Expiry_Date"].notnull()) &
-            (members_df["Expiry_Date"] - pd.Timestamp(now_ist) <= pd.Timedelta(days=7))
+            (members_df["Expiry_Date_IST"].notnull()) &
+            ((members_df["Expiry_Date_IST"] - now_ist) <= pd.Timedelta(days=7))
         ]
         if not soon_expiring.empty:
             st.warning("⚠️ Members expiring within 7 days (IST):")
