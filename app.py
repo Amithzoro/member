@@ -1,151 +1,142 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+import os
 
-EXCEL_FILE = "members.xlsx"
+# ✅ Safe writable path for Streamlit Cloud
+EXCEL_FILE = "/mount/data/members.xlsx"
+os.makedirs("/mount/data", exist_ok=True)
 
-# --- Load or create the members file safely ---
-required_cols = ["Username", "Password", "Role", "Join_Date", "Expiry_Date", "Amount"]
+# --- Required columns ---
+required_cols = ["Member_Name", "Join_Date", "Expiry_Date", "Amount"]
 
-try:
-    df = pd.read_excel(EXCEL_FILE)
+# --- Load or create Excel file ---
+if os.path.exists(EXCEL_FILE):
+    members_df = pd.read_excel(EXCEL_FILE)
     for col in required_cols:
-        if col not in df.columns:
-            if col in ["Join_Date", "Expiry_Date"]:
-                df[col] = ""
-            elif col == "Amount":
-                df[col] = 0
-            elif col == "Role":
-                df[col] = "Member"
-            else:
-                df[col] = ""
-    df.to_excel(EXCEL_FILE, index=False)
-except FileNotFoundError:
-    df = pd.DataFrame({
-        "Username": ["vineeth", "staff1", "member1"],
-        "Password": ["panda@2006", "staff@123", "mem@123"],
-        "Role": ["Owner", "Staff", "Member"],
-        "Join_Date": [
-            datetime.now().strftime("%Y-%m-%d"),
-            datetime.now().strftime("%Y-%m-%d"),
-            datetime.now().strftime("%Y-%m-%d"),
-        ],
-        "Expiry_Date": [
-            (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d"),
-            "",  # staff no expiry
-            (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-        ],
-        "Amount": [0, 0, 0]
-    })
-    df.to_excel(EXCEL_FILE, index=False)
+        if col not in members_df.columns:
+            members_df[col] = ""
+else:
+    members_df = pd.DataFrame(columns=required_cols)
+    members_df.to_excel(EXCEL_FILE, index=False)
 
-# --- Login system ---
-st.title("🏋️ Gym Management System")
+# --- Login credentials ---
+USERS = {
+    "vineeth": {"password": "panda@2006", "role": "Owner"},
+    "staff1": {"password": "staff@123", "role": "Staff"},
+}
 
-username = st.text_input("Username")
-password = st.text_input("Password", type="password")
-login_btn = st.button("Login")
+# --- Session setup ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "role" not in st.session_state:
+    st.session_state.role = None
 
-if login_btn:
-    user = df[(df["Username"] == username) & (df["Password"] == password)]
+# --- Login Page ---
+st.title("🏋️ Gym Membership Management System")
 
-    if not user.empty:
-        role = user.iloc[0]["Role"]
-        st.success(f"✅ Login successful! Welcome, {username} ({role})")
+if not st.session_state.logged_in:
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-        if role == "Owner":
-            st.subheader("👑 Owner Dashboard")
-            st.dataframe(df[["Username", "Role", "Join_Date", "Expiry_Date", "Amount"]])
+    if st.button("Login"):
+        if username in USERS and USERS[username]["password"] == password:
+            st.session_state.logged_in = True
+            st.session_state.role = USERS[username]["role"]
+            st.session_state.username = username
+            st.success(f"✅ Welcome, {username}! You are logged in as {st.session_state.role}.")
+            st.rerun()
+        else:
+            st.error("❌ Invalid username or password!")
 
-            # --- Edit existing users ---
-            st.markdown("### ✏️ Edit Member or Staff")
-            selected_user = st.selectbox("Select user to edit", df["Username"].unique())
-            if selected_user:
-                row = df[df["Username"] == selected_user].iloc[0]
-                new_role = st.selectbox("Role", ["Member", "Staff", "Owner"], index=["Member", "Staff", "Owner"].index(row["Role"]))
-                new_amount = st.number_input("Amount", value=int(row["Amount"]))
-                if new_role == "Member":
-                    new_expiry = st.date_input("Expiry Date", datetime.strptime(row["Expiry_Date"], "%Y-%m-%d") if row["Expiry_Date"] else datetime.now())
-                else:
-                    new_expiry = ""
+else:
+    role = st.session_state.role
+    st.sidebar.success(f"Logged in as: {role}")
+    st.sidebar.button("🚪 Logout", on_click=lambda: [st.session_state.clear(), st.rerun()])
 
-                if st.button("💾 Save Changes"):
-                    df.loc[df["Username"] == selected_user, ["Role", "Amount", "Expiry_Date"]] = [new_role, new_amount, new_expiry if new_role == "Member" else ""]
-                    df.to_excel(EXCEL_FILE, index=False)
-                    st.success("✅ Changes saved successfully!")
-                    st.rerun()
+    # --- Expiry reminder ---
+    if not members_df.empty and "Expiry_Date" in members_df.columns:
+        try:
+            members_df["Expiry_Date"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce")
+            soon_expiring = members_df[
+                (members_df["Expiry_Date"].notnull()) &
+                (members_df["Expiry_Date"] - pd.Timestamp.now() <= pd.Timedelta(days=7))
+            ]
+            if not soon_expiring.empty:
+                st.warning("⚠️ Members expiring within 7 days:")
+                st.dataframe(soon_expiring[["Member_Name", "Expiry_Date", "Amount"]])
+        except Exception as e:
+            st.info("ℹ️ Some expiry dates may be invalid or missing.")
 
-            # --- Add new user ---
-            st.markdown("### ➕ Add New Member or Staff")
-            new_username = st.text_input("New Username")
-            new_password = st.text_input("New Password")
-            new_role = st.selectbox("New Role", ["Member", "Staff"])
-            if st.button("Add User"):
-                if new_username and new_password:
-                    expiry = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d") if new_role == "Member" else ""
-                    new_entry = {
-                        "Username": new_username,
-                        "Password": new_password,
-                        "Role": new_role,
-                        "Join_Date": datetime.now().strftime("%Y-%m-%d"),
-                        "Expiry_Date": expiry,
-                        "Amount": 0,
-                    }
-                    df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-                    df.to_excel(EXCEL_FILE, index=False)
-                    st.success(f"✅ {new_role} '{new_username}' added successfully!")
-                    st.rerun()
-                else:
-                    st.warning("Please fill all fields.")
+    # --- Dashboard ---
+    st.header(f"{role} Dashboard")
 
-        elif role == "Staff":
-            st.subheader("🧾 Staff Dashboard")
+    # --- View Members ---
+    st.subheader("👥 Member List")
+    if members_df.empty:
+        st.info("No members found yet.")
+    else:
+        st.dataframe(members_df)
 
-            st.markdown("### ➕ Add New Member")
-            new_username = st.text_input("Member Username")
-            new_password = st.text_input("Member Password")
-            new_amount = st.number_input("Amount Paid", min_value=0)
-            if st.button("Add Member"):
-                if new_username and new_password:
-                    expiry = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
-                    new_entry = {
-                        "Username": new_username,
-                        "Password": new_password,
-                        "Role": "Member",
-                        "Join_Date": datetime.now().strftime("%Y-%m-%d"),
-                        "Expiry_Date": expiry,
-                        "Amount": new_amount,
-                    }
-                    df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-                    df.to_excel(EXCEL_FILE, index=False)
-                    st.success(f"✅ Member '{new_username}' added successfully!")
-                    st.rerun()
-                else:
-                    st.warning("Please fill all fields.")
+    # --- Add Member (Owner & Staff) ---
+    st.subheader("➕ Add New Member")
+    member_name = st.text_input("Member Name")
+    amount = st.number_input("Amount Paid", min_value=0)
+    expiry_date = st.date_input("Expiry Date", value=datetime.now() + timedelta(days=30))
 
-            st.markdown("### 💵 Update Member Amount")
-            members_only = df[df["Role"] == "Member"]["Username"].tolist()
-            member_to_update = st.selectbox("Select Member", members_only)
-            new_amount = st.number_input("Enter New Amount", min_value=0)
-            if st.button("Update Amount"):
-                df.loc[df["Username"] == member_to_update, "Amount"] = new_amount
-                df.to_excel(EXCEL_FILE, index=False)
-                st.success(f"💰 Amount updated for {member_to_update}")
+    if st.button("Add Member"):
+        if member_name:
+            new_row = {
+                "Member_Name": member_name,
+                "Join_Date": datetime.now().strftime("%Y-%m-%d"),
+                "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
+                "Amount": amount,
+            }
+            members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
+            members_df.to_excel(EXCEL_FILE, index=False)
+            st.success(f"✅ Member '{member_name}' added successfully!")
+            st.rerun()
+        else:
+            st.warning("⚠️ Please enter a member name.")
+
+    # --- Edit/Delete Members (Owner Only) ---
+    if role == "Owner":
+        st.subheader("✏️ Edit or Delete Member")
+        if not members_df.empty:
+            selected_member = st.selectbox("Select Member", members_df["Member_Name"])
+            row = members_df[members_df["Member_Name"] == selected_member].iloc[0]
+
+            new_name = st.text_input("Edit Name", row["Member_Name"])
+            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
+            new_expiry = st.date_input(
+                "Edit Expiry Date",
+                row["Expiry_Date"] if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
+            )
+
+            if st.button("💾 Save Changes"):
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Expiry_Date"]] = [
+                    new_name,
+                    new_amount,
+                    new_expiry.strftime("%Y-%m-%d"),
+                ]
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.success(f"✅ Updated '{selected_member}' successfully!")
                 st.rerun()
 
-        else:
-            st.subheader("💪 Member Dashboard")
-            info = user.iloc[0]
-            st.write(f"**Join Date:** {info['Join_Date']}")
-            st.write(f"**Expiry Date:** {info['Expiry_Date']}")
-            st.write(f"**Amount Paid:** ₹{info['Amount']}")
+            if st.button("🗑 Delete Member"):
+                members_df = members_df[members_df["Member_Name"] != selected_member]
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.warning(f"❌ Deleted member '{selected_member}'")
+                st.rerun()
 
-            if info["Expiry_Date"]:
-                expiry = datetime.strptime(str(info["Expiry_Date"]), "%Y-%m-%d")
-                remaining = (expiry - datetime.now()).days
-                if remaining <= 7:
-                    st.warning(f"⚠️ Your membership expires in {remaining} days!")
-                else:
-                    st.success(f"✅ {remaining} days remaining on your membership.")
-    else:
-        st.error("❌ Invalid username or password!")
+    # --- Staff can update amount only ---
+    if role == "Staff":
+        st.subheader("💰 Update Member Amount")
+        if not members_df.empty:
+            selected_member = st.selectbox("Select Member to Update", members_df["Member_Name"])
+            new_amount = st.number_input("Enter New Amount", min_value=0)
+            if st.button("Update Amount"):
+                members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.success(f"✅ Updated amount for {selected_member}")
+                st.rerun()
