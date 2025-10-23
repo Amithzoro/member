@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-# ✅ Writable Excel file in app folder
+# ✅ Excel file in app folder (writable)
 EXCEL_FILE = "members.xlsx"
 
 # --- Required columns for members ---
@@ -105,39 +105,45 @@ if st.session_state.logged_in:
     # --- Edit/Delete Members (Owner Only) ---
     if role == "Owner" and not members_df.empty:
         st.subheader("✏️ Edit or Delete Member")
-        selected_member = st.selectbox("Select Member", members_df["Member_Name"])
-        row = members_df[members_df["Member_Name"] == selected_member].iloc[0]
+        member_names = members_df["Member_Name"].tolist()
+        if member_names:
+            selected_member = st.selectbox("Select Member", member_names)
+            row = members_df[members_df["Member_Name"] == selected_member].iloc[0]
 
-        new_name = st.text_input("Edit Name", row["Member_Name"])
-        new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
-        new_expiry = st.date_input(
-            "Edit Expiry Date",
-            row["Expiry_Date"] if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
-        )
+            new_name = st.text_input("Edit Name", row["Member_Name"])
+            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
+            new_expiry = st.date_input(
+                "Edit Expiry Date",
+                row["Expiry_Date"] if not pd.isna(row["Expiry_Date"]) else datetime.now() + timedelta(days=30)
+            )
 
-        if st.button("💾 Save Changes"):
-            members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Expiry_Date"]] = [
-                new_name,
-                new_amount,
-                new_expiry.strftime("%Y-%m-%d"),
-            ]
-            members_df.to_excel(EXCEL_FILE, index=False)
-            st.success(f"✅ Updated '{selected_member}' successfully!")
-            st.rerun()
+            if st.button("💾 Save Changes"):
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Expiry_Date"]] = [
+                    new_name,
+                    new_amount,
+                    new_expiry.strftime("%Y-%m-%d"),
+                ]
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.success(f"✅ Updated '{selected_member}' successfully!")
+                st.rerun()
 
-        if st.button("🗑 Delete Member"):
-            members_df = members_df[members_df["Member_Name"] != selected_member]
-            members_df.to_excel(EXCEL_FILE, index=False)
-            st.warning(f"❌ Deleted member '{selected_member}'")
-            st.rerun()
+            if st.button("🗑 Delete Member"):
+                members_df = members_df[members_df["Member_Name"] != selected_member]
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.warning(f"❌ Deleted member '{selected_member}'")
+                st.rerun()
+        else:
+            st.info("No members available to edit or delete.")
 
     # --- Staff can update amount only ---
     if role == "Staff" and not members_df.empty:
         st.subheader("💰 Update Member Amount")
-        selected_member = st.selectbox("Select Member to Update", members_df["Member_Name"])
-        new_amount = st.number_input("Enter New Amount", min_value=0)
-        if st.button("Update Amount"):
-            members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
-            members_df.to_excel(EXCEL_FILE, index=False)
-            st.success(f"✅ Updated amount for {selected_member}")
-            st.rerun()
+        member_names = members_df["Member_Name"].tolist()
+        if member_names:
+            selected_member = st.selectbox("Select Member to Update", member_names)
+            new_amount = st.number_input("Enter New Amount", min_value=0)
+            if st.button("Update Amount"):
+                members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
+                members_df.to_excel(EXCEL_FILE, index=False)
+                st.success(f"✅ Updated amount for {selected_member}")
+                st.rerun()
