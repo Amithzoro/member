@@ -13,7 +13,7 @@ os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
 
 # --- Required columns ---
-required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]
+required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]
 
 # --- Load or create members Excel file ---
 try:
@@ -78,7 +78,7 @@ if st.session_state.logged_in:
         ]
         if not soon_expiring.empty:
             st.warning("⚠️ Members expiring within 7 days (IST):")
-            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]])
+            st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration", "Timestamp"]])
 
     st.header(f"{role} Dashboard")
 
@@ -111,6 +111,7 @@ if st.session_state.logged_in:
 
     if st.button("Add Member", key="add_member_button"):
         if member_name:
+            timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             new_row = {
                 "Member_Name": member_name,
                 "Start_Date": start_date.strftime("%Y-%m-%d"),
@@ -118,7 +119,8 @@ if st.session_state.logged_in:
                 "Amount": amount,
                 "Month": month,
                 "Year": year,
-                "Duration": duration_option
+                "Duration": duration_option,
+                "Timestamp": timestamp
             }
             members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
 
@@ -167,14 +169,15 @@ if st.session_state.logged_in:
             year = new_start.year
 
             if st.button("💾 Save Changes", key=f"save_{selected_member}"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year", "Duration"]] = [
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year", "Duration", "Timestamp"]] = [
                     new_name,
                     new_amount,
                     new_start.strftime("%Y-%m-%d"),
                     final_expiry.strftime("%Y-%m-%d"),
                     month,
                     year,
-                    duration_option
+                    duration_option,
+                    datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                 ]
 
                 # --- Save Excel safely ---
@@ -214,7 +217,10 @@ if st.session_state.logged_in:
             selected_member = st.selectbox("Select Member to Update", member_names, key="staff_select_member")
             new_amount = st.number_input("Enter New Amount", min_value=0, key=f"staff_amount_{selected_member}")
             if st.button("Update Amount", key=f"staff_update_{selected_member}"):
-                members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Amount", "Timestamp"]] = [
+                    new_amount,
+                    datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                ]
 
                 # --- Save Excel safely ---
                 save_df = members_df.copy()
