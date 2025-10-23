@@ -4,12 +4,12 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import os
 
-# ✅ Ensure data folder exists
+# --- Ensure data folder exists ---
 os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
 
 # --- Required columns ---
-required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year"]
+required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]
 
 # --- Load or create members Excel file ---
 try:
@@ -70,7 +70,7 @@ if st.session_state.logged_in:
             ]
             if not soon_expiring.empty:
                 st.warning("⚠️ Members expiring within 7 days:")
-                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year"]])
+                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year", "Duration"]])
         except Exception:
             st.info("ℹ️ Some expiry dates may be missing or invalid.")
 
@@ -83,14 +83,23 @@ if st.session_state.logged_in:
     else:
         st.dataframe(members_df)
 
+    # --- Membership Duration Options ---
+    duration_map = {
+        "Monthly": 1,
+        "Quarterly": 3,
+        "Half-Yearly": 6,
+        "Yearly": 12
+    }
+
     # --- Add Member (Owner & Staff) ---
     st.subheader("➕ Add New Member")
     member_name = st.text_input("Member Name")
     amount = st.number_input("Amount Paid", min_value=0)
     start_date = st.date_input("Membership Start Date", value=datetime.now())
-
-    # Calculate expiry based on start date (1 calendar month)
-    expiry_date = start_date + relativedelta(months=1)
+    duration_option = st.selectbox("Membership Duration", list(duration_map.keys()))
+    
+    # Calculate expiry based on duration
+    expiry_date = start_date + relativedelta(months=duration_map[duration_option])
     month = start_date.strftime("%B")
     year = start_date.year
     st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')} (Month: {month}, Year: {year})")
@@ -103,7 +112,8 @@ if st.session_state.logged_in:
                 "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
                 "Amount": amount,
                 "Month": month,
-                "Year": year
+                "Year": year,
+                "Duration": duration_option
             }
             members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
             members_df.to_excel(EXCEL_FILE, index=False)
@@ -126,11 +136,15 @@ if st.session_state.logged_in:
                 "Edit Start Date",
                 pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else datetime.now()
             )
+            duration_option = st.selectbox(
+                "Membership Duration",
+                list(duration_map.keys()),
+                index=list(duration_map.keys()).index(row.get("Duration", "Monthly"))
+            )
 
-            # Auto expiry by adding 1 calendar month
-            auto_expiry = new_start + relativedelta(months=1)
+            # Auto expiry by duration
+            auto_expiry = new_start + relativedelta(months=duration_map[duration_option])
             st.write(f"✅ Expiry Date automatically set to: {auto_expiry.strftime('%Y-%m-%d')}")
-
             new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry)
             final_expiry = new_expiry_override if new_expiry_override else auto_expiry
 
@@ -139,13 +153,14 @@ if st.session_state.logged_in:
             year = new_start.year
 
             if st.button("💾 Save Changes"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year"]] = [
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year", "Duration"]] = [
                     new_name,
                     new_amount,
                     new_start.strftime("%Y-%m-%d"),
                     final_expiry.strftime("%Y-%m-%d"),
                     month,
-                    year
+                    year,
+                    duration_option
                 ]
                 members_df.to_excel(EXCEL_FILE, index=False)
                 st.success(f"✅ Updated '{selected_member}' successfully!")
