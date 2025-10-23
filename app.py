@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 import os
 
-# ✅ Use data folder in container
+# ✅ Ensure data folder exists
 os.makedirs("data", exist_ok=True)
 EXCEL_FILE = "data/members.xlsx"
 
 # --- Required columns ---
-required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount"]
+required_cols = ["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year"]
 
 # --- Load or create members Excel file ---
 try:
@@ -69,7 +70,7 @@ if st.session_state.logged_in:
             ]
             if not soon_expiring.empty:
                 st.warning("⚠️ Members expiring within 7 days:")
-                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount"]])
+                st.dataframe(soon_expiring[["Member_Name", "Start_Date", "Expiry_Date", "Amount", "Month", "Year"]])
         except Exception:
             st.info("ℹ️ Some expiry dates may be missing or invalid.")
 
@@ -87,10 +88,12 @@ if st.session_state.logged_in:
     member_name = st.text_input("Member Name")
     amount = st.number_input("Amount Paid", min_value=0)
     start_date = st.date_input("Membership Start Date", value=datetime.now())
-    
-    # Automatic expiry = start_date + 30 days
-    expiry_date = start_date + timedelta(days=30)
-    st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')}")
+
+    # Calculate expiry based on start date (1 calendar month)
+    expiry_date = start_date + relativedelta(months=1)
+    month = start_date.strftime("%B")
+    year = start_date.year
+    st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')} (Month: {month}, Year: {year})")
 
     if st.button("Add Member"):
         if member_name:
@@ -99,6 +102,8 @@ if st.session_state.logged_in:
                 "Start_Date": start_date.strftime("%Y-%m-%d"),
                 "Expiry_Date": expiry_date.strftime("%Y-%m-%d"),
                 "Amount": amount,
+                "Month": month,
+                "Year": year
             }
             members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
             members_df.to_excel(EXCEL_FILE, index=False)
@@ -122,18 +127,25 @@ if st.session_state.logged_in:
                 pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else datetime.now()
             )
 
-            # Auto-update expiry based on start date
-            auto_expiry = new_start + timedelta(days=30)
+            # Auto expiry by adding 1 calendar month
+            auto_expiry = new_start + relativedelta(months=1)
             st.write(f"✅ Expiry Date automatically set to: {auto_expiry.strftime('%Y-%m-%d')}")
+
             new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry)
             final_expiry = new_expiry_override if new_expiry_override else auto_expiry
 
+            # Month & Year from Start Date
+            month = new_start.strftime("%B")
+            year = new_start.year
+
             if st.button("💾 Save Changes"):
-                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date"]] = [
+                members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year"]] = [
                     new_name,
                     new_amount,
                     new_start.strftime("%Y-%m-%d"),
-                    final_expiry.strftime("%Y-%m-%d")
+                    final_expiry.strftime("%Y-%m-%d"),
+                    month,
+                    year
                 ]
                 members_df.to_excel(EXCEL_FILE, index=False)
                 st.success(f"✅ Updated '{selected_member}' successfully!")
