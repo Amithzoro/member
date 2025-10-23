@@ -41,10 +41,10 @@ if "role" not in st.session_state:
 st.title("🏋️ Gym Membership Management System (IST)")
 
 if not st.session_state.logged_in:
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    username = st.text_input("Username", key="login_username")
+    password = st.text_input("Password", type="password", key="login_password")
 
-    if st.button("Login"):
+    if st.button("Login", key="login_button"):
         if username in USERS and USERS[username]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.role = USERS[username]["role"]
@@ -60,7 +60,7 @@ if st.session_state.logged_in:
     username = st.session_state.username
 
     st.sidebar.success(f"Logged in as: {role}")
-    if st.sidebar.button("🚪 Logout"):
+    if st.sidebar.button("🚪 Logout", key="logout_button"):
         st.session_state.clear()
         st.rerun()
 
@@ -68,10 +68,9 @@ if st.session_state.logged_in:
 
     # --- Expiry reminders in IST ---
     if not members_df.empty:
-        # Convert Expiry_Date to IST-aware datetime
-        members_df["Expiry_Date_IST"] = pd.to_datetime(members_df["Expiry_Date"], errors="coerce").dt.tz_localize(
-            'Asia/Kolkata', ambiguous='NaT', nonexistent='shift_forward'
-        )
+        members_df["Expiry_Date_IST"] = pd.to_datetime(
+            members_df["Expiry_Date"], errors="coerce"
+        ).dt.tz_localize('Asia/Kolkata', ambiguous='NaT', nonexistent='shift_forward')
 
         soon_expiring = members_df[
             (members_df["Expiry_Date_IST"].notnull()) &
@@ -100,18 +99,17 @@ if st.session_state.logged_in:
 
     # --- Add Member (Owner & Staff) ---
     st.subheader("➕ Add New Member")
-    member_name = st.text_input("Member Name")
-    amount = st.number_input("Amount Paid", min_value=0)
-    start_date = st.date_input("Membership Start Date", value=now_ist.date())
-    duration_option = st.selectbox("Membership Duration", list(duration_map.keys()))
+    member_name = st.text_input("Member Name", key="add_member_name")
+    amount = st.number_input("Amount Paid", min_value=0, key="add_amount")
+    start_date = st.date_input("Membership Start Date", value=now_ist.date(), key="add_start_date")
+    duration_option = st.selectbox("Membership Duration", list(duration_map.keys()), key="add_duration")
 
-    # Calculate expiry based on duration
     expiry_date = start_date + relativedelta(months=duration_map[duration_option])
     month = start_date.strftime("%B")
     year = start_date.year
     st.write(f"✅ Expiry Date will be set to: {expiry_date.strftime('%Y-%m-%d')} (Month: {month}, Year: {year})")
 
-    if st.button("Add Member"):
+    if st.button("Add Member", key="add_member_button"):
         if member_name:
             new_row = {
                 "Member_Name": member_name,
@@ -143,32 +141,32 @@ if st.session_state.logged_in:
         st.subheader("✏️ Edit or Delete Member")
         member_names = members_df["Member_Name"].tolist()
         if member_names:
-            selected_member = st.selectbox("Select Member", member_names)
+            selected_member = st.selectbox("Select Member", member_names, key="edit_select_member")
             row = members_df[members_df["Member_Name"] == selected_member].iloc[0]
 
-            new_name = st.text_input("Edit Name", row["Member_Name"])
-            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]))
+            new_name = st.text_input("Edit Name", row["Member_Name"], key=f"edit_name_{selected_member}")
+            new_amount = st.number_input("Edit Amount", value=float(row["Amount"]), key=f"edit_amount_{selected_member}")
             new_start = st.date_input(
                 "Edit Start Date",
-                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else now_ist.date()
+                pd.to_datetime(row["Start_Date"]) if not pd.isna(row["Start_Date"]) else now_ist.date(),
+                key=f"edit_start_{selected_member}"
             )
             duration_option = st.selectbox(
                 "Membership Duration",
                 list(duration_map.keys()),
-                index=list(duration_map.keys()).index(row.get("Duration", "Monthly"))
+                index=list(duration_map.keys()).index(row.get("Duration", "Monthly")),
+                key=f"edit_duration_{selected_member}"
             )
 
-            # Auto expiry by duration
             auto_expiry = new_start + relativedelta(months=duration_map[duration_option])
             st.write(f"✅ Expiry Date automatically set to: {auto_expiry.strftime('%Y-%m-%d')}")
-            new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry)
+            new_expiry_override = st.date_input("Override Expiry Date (Optional)", auto_expiry, key=f"edit_expiry_{selected_member}")
             final_expiry = new_expiry_override if new_expiry_override else auto_expiry
 
-            # Month & Year from Start Date
             month = new_start.strftime("%B")
             year = new_start.year
 
-            if st.button("💾 Save Changes"):
+            if st.button("💾 Save Changes", key=f"save_{selected_member}"):
                 members_df.loc[members_df["Member_Name"] == selected_member, ["Member_Name", "Amount", "Start_Date", "Expiry_Date", "Month", "Year", "Duration"]] = [
                     new_name,
                     new_amount,
@@ -191,7 +189,7 @@ if st.session_state.logged_in:
                 st.success(f"✅ Updated '{selected_member}' successfully!")
                 st.rerun()
 
-            if st.button("🗑 Delete Member"):
+            if st.button("🗑 Delete Member", key=f"delete_{selected_member}"):
                 members_df = members_df[members_df["Member_Name"] != selected_member]
 
                 # --- Save Excel safely ---
@@ -213,9 +211,9 @@ if st.session_state.logged_in:
         st.subheader("💰 Update Member Amount")
         member_names = members_df["Member_Name"].tolist()
         if member_names:
-            selected_member = st.selectbox("Select Member to Update", member_names)
-            new_amount = st.number_input("Enter New Amount", min_value=0)
-            if st.button("Update Amount"):
+            selected_member = st.selectbox("Select Member to Update", member_names, key="staff_select_member")
+            new_amount = st.number_input("Enter New Amount", min_value=0, key=f"staff_amount_{selected_member}")
+            if st.button("Update Amount", key=f"staff_update_{selected_member}"):
                 members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
 
                 # --- Save Excel safely ---
