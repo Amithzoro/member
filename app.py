@@ -117,7 +117,7 @@ def main():
                 st.session_state.role = USERS[username]["role"]
                 st.session_state.username = username
                 st.success(f"✅ Welcome, {username}! Role: {st.session_state.role}")
-                st.experimental_rerun()
+                return
             else:
                 st.error("❌ Invalid username or password!")
         return
@@ -130,7 +130,7 @@ def main():
     st.sidebar.success(f"Logged in as: {role}")
     if st.sidebar.button("🚪 Logout"):
         st.session_state.clear()
-        st.experimental_rerun()
+        return
 
     # --- Expiry reminder ---
     if not members_df.empty:
@@ -185,12 +185,10 @@ def main():
         if st.button("💾 Save Changes"):
             members_df = update_member(members_df, selected_member, new_name, new_start, duration, new_amount, expiry_override)
             st.success(f"✅ Member '{new_name}' updated successfully")
-            st.experimental_rerun()
 
         if st.button("🗑 Delete Member"):
             members_df = delete_member(members_df, selected_member)
             st.warning(f"❌ Member '{selected_member}' deleted")
-            st.experimental_rerun()
 
     # --- Staff: Update Amount Only ---
     if role=="Staff" and not members_df.empty:
@@ -201,7 +199,6 @@ def main():
         if st.button("Update Amount"):
             members_df = staff_update_amount(members_df, selected_member, new_amount)
             st.success(f"✅ Amount updated for {selected_member}")
-            st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
