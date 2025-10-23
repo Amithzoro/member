@@ -4,17 +4,15 @@ from datetime import datetime, timedelta
 import pytz
 import os
 
-# Constants
 EXCEL_FILE = "members.xlsx"
 IST = pytz.timezone("Asia/Kolkata")
 
-# Roles with your custom credentials
+# Roles
 USERS = {
     "vineeth": {"password": "panda@2006", "role": "Owner"},
     "rahul": {"password": "staff123", "role": "Staff"}
 }
 
-# Duration mapping
 DURATION_MAP = {"Monthly": 30, "Quarterly": 90, "Yearly": 365}
 
 # Ensure Excel file exists
@@ -22,7 +20,6 @@ if not os.path.exists(EXCEL_FILE):
     df = pd.DataFrame(columns=["Member_Name", "Start_Date", "Expiry_Date", "Registration_Time_IST", "Amount"])
     df.to_excel(EXCEL_FILE, index=False)
 
-# Helper functions
 def get_ist_now():
     return datetime.now(IST)
 
@@ -47,7 +44,7 @@ def register_member(df, username, duration_days=30, amount=0):
         "Member_Name": username,
         "Start_Date": start_date,
         "Expiry_Date": expiry_date,
-        "Registration_Time_IST": now_ist,  # full IST timestamp
+        "Registration_Time_IST": now_ist,
         "Amount": amount
     }
     df = pd.concat([df, pd.DataFrame([new_member])], ignore_index=True)
@@ -59,53 +56,55 @@ def delete_member(df, member_name):
     save_members(df)
     return df
 
-# Streamlit App
+# --- Streamlit App ---
 st.title("Gym Membership System")
 
 # Login
 st.sidebar.subheader("Login")
-username = st.sidebar.text_input("Username")
-password = st.sidebar.text_input("Password", type="password")
-login_btn = st.sidebar.button("Login")
+username = st.sidebar.text_input("Username", key="login_user")
+password = st.sidebar.text_input("Password", type="password", key="login_pass")
+login_btn = st.sidebar.button("Login", key="login_btn")
 
 if login_btn:
     if username in USERS and USERS[username]["password"] == password:
         role = USERS[username]["role"]
         st.success(f"✅ Logged in as {username} ({role})")
-        members_df = load_members()
 
-        # Expiry Reminder for Owner & Staff
-        expiring_df = get_expiring_members(members_df, days=7)
+        if "members_df" not in st.session_state:
+            st.session_state.members_df = load_members()
+
+        df = st.session_state.members_df
+
+        # --- Expiring Members Reminder ---
+        expiring_df = get_expiring_members(df, days=7)
         if not expiring_df.empty:
             st.warning("⚠️ Members expiring within 7 days:")
             st.dataframe(expiring_df[["Member_Name", "Expiry_Date"]])
 
-        # Add Member
+        # --- Add Member Section ---
         st.subheader("Add Member")
-        new_name = st.text_input("Member Name")
-        duration_option = st.selectbox("Membership Duration", list(DURATION_MAP.keys()))
-        amount = st.number_input("Amount Paid", min_value=0, value=0)
-        add_btn = st.button("Add Member")
-
-        if add_btn:
+        new_name = st.text_input("Member Name", key="add_name")
+        duration_option = st.selectbox("Membership Duration", list(DURATION_MAP.keys()), key="add_duration")
+        amount = st.number_input("Amount Paid", min_value=0, value=0, key="add_amount")
+        if st.button("Add Member", key="add_btn"):
             if new_name:
-                members_df = register_member(members_df, new_name, DURATION_MAP[duration_option], amount)
+                st.session_state.members_df = register_member(df, new_name, DURATION_MAP[duration_option], amount)
                 st.success(f"✅ Member '{new_name}' added with {duration_option} duration.")
             else:
                 st.warning("Please enter a member name.")
 
-        # Only Owner can delete or edit members
+        # --- Delete Member (Owner Only) ---
         if role == "Owner":
             st.subheader("Delete Member")
-            member_to_delete = st.selectbox("Select Member", members_df["Member_Name"].tolist())
-            delete_btn = st.button("Delete Member")
-            if delete_btn:
-                members_df = delete_member(members_df, member_to_delete)
-                st.success(f"✅ Member '{member_to_delete}' deleted.")
+            if not df.empty:
+                member_to_delete = st.selectbox("Select Member to Delete", df["Member_Name"].tolist(), key="delete_select")
+                if st.button("Delete Member", key="delete_btn"):
+                    st.session_state.members_df = delete_member(df, member_to_delete)
+                    st.success(f"✅ Member '{member_to_delete}' deleted.")
 
-        # Show all members
+        # --- Show All Members ---
         st.subheader("All Members")
-        st.dataframe(members_df)
+        st.dataframe(st.session_state.members_df)
 
     else:
         st.error("❌ Invalid username or password")
