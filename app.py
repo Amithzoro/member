@@ -123,7 +123,16 @@ if st.session_state.logged_in:
                 "Duration": duration_option
             }
             members_df = pd.concat([members_df, pd.DataFrame([new_row])], ignore_index=True)
-            members_df.to_excel(EXCEL_FILE, index=False)
+
+            # --- Save Excel safely ---
+            save_df = members_df.copy()
+            if "Expiry_Date_IST" in save_df.columns:
+                save_df = save_df.drop(columns=["Expiry_Date_IST"])
+            for col in ["Start_Date", "Expiry_Date"]:
+                if col in save_df.columns:
+                    save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
+            save_df.to_excel(EXCEL_FILE, index=False)
+
             st.success(f"✅ Member '{member_name}' added successfully!")
             st.rerun()
         else:
@@ -169,13 +178,31 @@ if st.session_state.logged_in:
                     year,
                     duration_option
                 ]
-                members_df.to_excel(EXCEL_FILE, index=False)
+
+                # --- Save Excel safely ---
+                save_df = members_df.copy()
+                if "Expiry_Date_IST" in save_df.columns:
+                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
+                for col in ["Start_Date", "Expiry_Date"]:
+                    if col in save_df.columns:
+                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
+                save_df.to_excel(EXCEL_FILE, index=False)
+
                 st.success(f"✅ Updated '{selected_member}' successfully!")
                 st.rerun()
 
             if st.button("🗑 Delete Member"):
                 members_df = members_df[members_df["Member_Name"] != selected_member]
-                members_df.to_excel(EXCEL_FILE, index=False)
+
+                # --- Save Excel safely ---
+                save_df = members_df.copy()
+                if "Expiry_Date_IST" in save_df.columns:
+                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
+                for col in ["Start_Date", "Expiry_Date"]:
+                    if col in save_df.columns:
+                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
+                save_df.to_excel(EXCEL_FILE, index=False)
+
                 st.warning(f"❌ Deleted member '{selected_member}'")
                 st.rerun()
         else:
@@ -190,6 +217,15 @@ if st.session_state.logged_in:
             new_amount = st.number_input("Enter New Amount", min_value=0)
             if st.button("Update Amount"):
                 members_df.loc[members_df["Member_Name"] == selected_member, "Amount"] = new_amount
-                members_df.to_excel(EXCEL_FILE, index=False)
+
+                # --- Save Excel safely ---
+                save_df = members_df.copy()
+                if "Expiry_Date_IST" in save_df.columns:
+                    save_df = save_df.drop(columns=["Expiry_Date_IST"])
+                for col in ["Start_Date", "Expiry_Date"]:
+                    if col in save_df.columns:
+                        save_df[col] = pd.to_datetime(save_df[col], errors="coerce").dt.tz_localize(None)
+                save_df.to_excel(EXCEL_FILE, index=False)
+
                 st.success(f"✅ Updated amount for {selected_member}")
                 st.rerun()
