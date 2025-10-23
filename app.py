@@ -33,7 +33,7 @@ def load_members():
 
 def save_members(df):
     df_copy = df.copy()
-    # Convert dates to standard timezone-naive datetime
+    # Convert dates to timezone-naive datetime
     for col in ["Start_Date", "Expiry_Date"]:
         df_copy[col] = pd.to_datetime(df_copy[col], errors="coerce").dt.tz_localize(None)
     try:
@@ -92,8 +92,10 @@ def staff_update_amount(df, member_name, amount):
 
 def get_expiring_members(df, days=7):
     now = get_ist_now()
-    df["Expiry_Date_IST"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(None)
-    soon_expire = df[(df["Expiry_Date_IST"].notnull()) & ((df["Expiry_Date_IST"] - now)<=pd.Timedelta(days=days))]
+    expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.tz_localize(None)
+    valid_mask = expiry_dates.notna()
+    soon_expire_mask = valid_mask & ((expiry_dates - now) <= pd.Timedelta(days=days))
+    soon_expire = df[soon_expire_mask].copy()
     return soon_expire
 
 # ----------------------- Streamlit App -----------------------
