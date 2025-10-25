@@ -30,10 +30,18 @@ def get_ist_now():
     return datetime.now(IST)
 
 def load_members():
-    return pd.read_excel(EXCEL_FILE)
+    df = pd.read_excel(EXCEL_FILE)
+    for col in ["Start_Date", "Expiry_Date"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+    return df
 
 def save_members(df):
-    df.to_excel(EXCEL_FILE, index=False)
+    df_copy = df.copy()
+    for col in ["Start_Date", "Expiry_Date"]:
+        if col in df_copy.columns:
+            df_copy[col] = df_copy[col].astype(str)
+    df_copy.to_excel(EXCEL_FILE, index=False)
 
 def get_expiring_members(df, days=7):
     today = get_ist_now().date()
@@ -118,7 +126,7 @@ else:
     # ===== Reminder =====
     if not expiring_df.empty:
         st.warning("⚠️ Members expiring within 7 days:")
-        st.dataframe(expiring_df[["Member_Name", "Phone_Number", "Expiry_Date"]])
+        st.dataframe(expiring_df[["Member_Name", "Phone_Number", "Expiry_Date"]].astype(str))
 
     # ===== Add Member =====
     st.subheader("➕ Register Member")
@@ -156,6 +164,6 @@ else:
     # ===== All Members =====
     st.subheader("📋 All Members")
     if not members_df.empty:
-        st.dataframe(members_df)
+        st.dataframe(members_df.astype(str))
     else:
         st.info("No members found.")
