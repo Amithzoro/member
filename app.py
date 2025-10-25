@@ -90,7 +90,7 @@ if not st.session_state.logged_in:
             st.session_state.role = USERS[username]["role"]
             st.session_state.username = username
             st.success(f"✅ Logged in as {username} ({st.session_state.role})")
-            st.experimental_rerun()
+            st.rerun()  # ✅ updated for new Streamlit
         else:
             st.error("❌ Invalid username or password")
 else:
@@ -99,7 +99,9 @@ else:
     logout = st.sidebar.button("Logout 🚪")
     if logout:
         st.session_state.logged_in = False
-        st.experimental_rerun()
+        st.session_state.role = None
+        st.session_state.username = None
+        st.rerun()  # ✅ updated
 
     # Load member data
     members_df = load_members()
