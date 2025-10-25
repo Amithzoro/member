@@ -17,7 +17,7 @@ USERS = {
 # --- Duration options ---
 DURATION_MAP = {"Monthly": 30, "Quarterly": 90, "Yearly": 365}
 
-# --- Ensure Excel exists ---
+# --- Ensure Excel file exists ---
 if not os.path.exists(EXCEL_FILE):
     df = pd.DataFrame(columns=[
         "Member_Name", "Start_Date", "Expiry_Date",
@@ -25,19 +25,15 @@ if not os.path.exists(EXCEL_FILE):
     ])
     df.to_excel(EXCEL_FILE, index=False)
 
-
 # --- Helper functions ---
 def get_ist_now():
     return datetime.now(IST)
 
-
 def load_members():
     return pd.read_excel(EXCEL_FILE)
 
-
 def save_members(df):
     df.to_excel(EXCEL_FILE, index=False)
-
 
 def get_expiring_members(df, days=7):
     today = get_ist_now().date()
@@ -46,7 +42,6 @@ def get_expiring_members(df, days=7):
         (expiry_dates - today).apply(lambda x: x.days <= days and x.days >= 0)
     )
     return df[soon_expire_mask].copy()
-
 
 def add_member(df, name, start_date, duration_days, amount):
     now = get_ist_now()
@@ -63,18 +58,16 @@ def add_member(df, name, start_date, duration_days, amount):
     save_members(df)
     return df
 
-
 def delete_member(df, name):
     df = df[df["Member_Name"] != name]
     save_members(df)
     return df
 
-
 # --- Streamlit App ---
 st.set_page_config("Gym Membership System", layout="centered")
 st.title("🏋️ Gym Membership Management")
 
-# --- Initialize session state ---
+# --- Session state ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "role" not in st.session_state:
@@ -112,8 +105,20 @@ else:
     # Load members
     members_df = load_members()
 
-    # --- Reminder Section ---
+    # --- Stats Section ---
+    total_members = len(members_df)
     expiring_df = get_expiring_members(members_df)
+    expiring_count = len(expiring_df)
+
+    st.markdown(
+        f"""
+        ### 📊 Summary
+        - 👥 **Total Members:** {total_members}  
+        - ⏳ **Expiring Soon (within 7 days):** {expiring_count}
+        """
+    )
+
+    # --- Reminder Section ---
     if not expiring_df.empty:
         st.warning("⚠️ Members expiring within 7 days:")
         st.dataframe(expiring_df[["Member_Name", "Expiry_Date"]])
