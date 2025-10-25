@@ -19,7 +19,10 @@ DURATION_MAP = {"Monthly": 30, "Quarterly": 90, "Yearly": 365}
 
 # --- Ensure Excel exists ---
 if not os.path.exists(EXCEL_FILE):
-    df = pd.DataFrame(columns=["Member_Name", "Start_Date", "Expiry_Date", "Registration_Time_IST", "Amount"])
+    df = pd.DataFrame(columns=[
+        "Member_Name", "Start_Date", "Expiry_Date",
+        "Registration_Time_IST", "Duration", "Amount"
+    ])
     df.to_excel(EXCEL_FILE, index=False)
 
 
@@ -39,19 +42,21 @@ def save_members(df):
 def get_expiring_members(df, days=7):
     today = get_ist_now().date()
     expiry_dates = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.date
-    soon_expire_mask = expiry_dates.notna() & ((expiry_dates - today).apply(lambda x: x.days <= days and x.days >= 0))
+    soon_expire_mask = expiry_dates.notna() & (
+        (expiry_dates - today).apply(lambda x: x.days <= days and x.days >= 0)
+    )
     return df[soon_expire_mask].copy()
 
 
-def add_member(df, name, duration_days, amount):
+def add_member(df, name, start_date, duration_days, amount):
     now = get_ist_now()
-    start_date = now.date()
     expiry_date = start_date + timedelta(days=duration_days)
     new_member = {
         "Member_Name": name,
         "Start_Date": start_date,
         "Expiry_Date": expiry_date,
         "Registration_Time_IST": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "Duration": f"{duration_days} days",
         "Amount": amount
     }
     df = pd.concat([df, pd.DataFrame([new_member])], ignore_index=True)
@@ -90,9 +95,10 @@ if not st.session_state.logged_in:
             st.session_state.role = USERS[username]["role"]
             st.session_state.username = username
             st.success(f"✅ Logged in as {username} ({st.session_state.role})")
-            st.rerun()  # ✅ updated for new Streamlit
+            st.rerun()
         else:
             st.error("❌ Invalid username or password")
+
 else:
     # --- Logged in UI ---
     st.sidebar.success(f"Logged in as {st.session_state.username} ({st.session_state.role})")
@@ -101,9 +107,9 @@ else:
         st.session_state.logged_in = False
         st.session_state.role = None
         st.session_state.username = None
-        st.rerun()  # ✅ updated
+        st.rerun()
 
-    # Load member data
+    # Load members
     members_df = load_members()
 
     # --- Reminder Section ---
@@ -113,16 +119,21 @@ else:
         st.dataframe(expiring_df[["Member_Name", "Expiry_Date"]])
 
     # --- Add Member Section ---
-    st.subheader("➕ Add Member")
+    st.subheader("➕ Add / Register Member")
     with st.form("add_member_form"):
         name = st.text_input("Member Name")
+        start_date = st.date_input("Start Date", value=datetime.now().date())
         duration = st.selectbox("Membership Duration", list(DURATION_MAP.keys()))
-        amount = st.number_input("Amount Paid", min_value=0, value=0)
+        amount = st.number_input("Amount Paid (₹)", min_value=0, value=0)
+
+        expiry_preview = start_date + timedelta(days=DURATION_MAP[duration])
+        st.info(f"📅 Expected Expiry Date: **{expiry_preview}**")
+
         submitted = st.form_submit_button("Add Member")
         if submitted:
             if name.strip():
-                members_df = add_member(members_df, name, DURATION_MAP[duration], amount)
-                st.success(f"✅ Member '{name}' added successfully ({duration})")
+                members_df = add_member(members_df, name, start_date, DURATION_MAP[duration], amount)
+                st.success(f"✅ Member '{name}' added successfully! Expiry: {expiry_preview}")
             else:
                 st.warning("Please enter a valid member name.")
 
