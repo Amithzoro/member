@@ -8,7 +8,7 @@ import os
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-EXCEL_FILE = "members.xlsx"
+EXCEL_FILE = "members.xlsx" # <--- The list is saved/loaded from here
 INDIAN_TZ = pytz.timezone("Asia/Kolkata")
 
 USER_CREDENTIALS = {
@@ -17,7 +17,7 @@ USER_CREDENTIALS = {
 }
 
 # -----------------------------
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (Save/Load logic is correct)
 # -----------------------------
 def validate_phone(phone: str) -> bool:
     """Simple check for 10+ digits and numeric content."""
@@ -57,10 +57,8 @@ def get_expiring_members(df):
     today = datetime.now(INDIAN_TZ).date()
     df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.date
 
-    # Members whose expiration date is in the past
     expired_mask = (df["Expiry_Date"].notna()) & (df["Expiry_Date"] < today)
     
-    # Members expiring today or in the next 7 days
     expiring_mask = (
         (df["Expiry_Date"].notna()) &
         (df["Expiry_Date"] >= today) &
@@ -80,7 +78,6 @@ def add_member(df):
     phone = st.text_input("Phone Number", key="add_phone")
     duration = st.selectbox("Membership Duration", ["1 Month", "3 Months", "6 Months", "1 Year"], key="add_duration")
     
-    # Date Input for Join Date (defaulting to today's date)
     join_date_input = st.date_input("Join Date (Used for calculation)", value=datetime.now(INDIAN_TZ).date(), key="add_join_date")
 
     if st.button("Add Member", key="submit_add"):
@@ -91,13 +88,9 @@ def add_member(df):
             st.warning("Phone number must be at least 10 digits and numeric.")
             return df
 
-        # --- LOGIC TO CAPTURE CURRENT TIME AND APPLY SELECTED DATE ---
-        # 1. Get the current time for accurate logging
         now_time = datetime.now(INDIAN_TZ).time()
-        # 2. Combine the selected date with the current time and localize
-        join_datetime = INDIAN_TZ.localize(datetime.combine(join_date_input, now_time))
+        join_datetime = INDIAN_TZ.localize(datetime.combine(join_date_input, now_time)) 
         
-        # Format the Join Date to explicitly include FULL TIME and Timezone
         join_date_str = join_datetime.strftime("%Y-%m-%d %H:%M:%S %Z") 
 
         expiry_date = calculate_expiry_date(join_datetime, duration) 
@@ -111,7 +104,7 @@ def add_member(df):
         }])
 
         df = pd.concat([df, new_entry], ignore_index=True)
-        save_members(df)
+        save_members(df) # <-- Data is saved here
         st.success(f"✅ **{name}** added! Joined: **{join_date_str}**, Expires: **{expiry_date.date()}**")
     return df
 
@@ -121,7 +114,6 @@ def edit_member(df):
         st.info("No members to edit.")
         return df
 
-    # Create enhanced Display column for clear identification
     df["Display"] = (
         df["Member_Name"] + 
         " (Ph: " + df["Phone_Number"].astype(str) + 
@@ -142,7 +134,6 @@ def edit_member(df):
     new_duration = st.selectbox("Renew Duration", ["1 Month", "3 Months", "6 Months", "1 Year"],
                                  index=current_duration_index, key="edit_duration")
 
-    # Date Input for Renewal Date
     renewal_date_input = st.date_input("Renewal/Update Date (Membership starts from this date)", 
                                        value=datetime.now(INDIAN_TZ).date(), 
                                        key="edit_renewal_date")
@@ -155,25 +146,19 @@ def edit_member(df):
             st.warning("Phone number must be at least 10 digits and numeric.")
             return df
 
-        # --- LOGIC TO CAPTURE CURRENT TIME AND APPLY SELECTED DATE ---
-        # 1. Get the current time for accurate logging
         now_time = datetime.now(INDIAN_TZ).time()
-        # 2. Combine the selected date with the current time and localize
         renewal_datetime = INDIAN_TZ.localize(datetime.combine(renewal_date_input, now_time))
         
-        # Calculate new expiry date based on the chosen renewal date
         expiry_date = calculate_expiry_date(renewal_datetime, new_duration)
 
-        # Update details
         df.at[idx, "Member_Name"] = new_name
         df.at[idx, "Phone_Number"] = new_phone
         df.at[idx, "Duration"] = new_duration
         df.at[idx, "Expiry_Date"] = expiry_date.date()
 
-        save_members(df)
+        save_members(df) # <-- Data is saved here
         st.success(f"✅ **{new_name}'s** membership renewed on **{renewal_date_input}** till **{expiry_date.date()}**")
 
-    # Drop the temporary display column
     df.drop(columns=["Display"], inplace=True, errors="ignore")
     return df
 
@@ -210,7 +195,7 @@ def main():
         st.rerun()
 
     # --- LOAD DATA & REMINDERS ---
-    members_df = load_members()
+    members_df = load_members() # <-- Data is loaded here
     expiring_soon, expired = get_expiring_members(members_df)
 
     with st.container(border=True):
@@ -251,7 +236,6 @@ def main():
     # Prepare DataFrame for clean display formatting
     display_df = members_df.copy()
     
-    # Format dates and fill any missing values with empty string
     if "Join_Date" in display_df.columns:
         # Format explicitly includes HH:MM:SS and Timezone
         display_df["Join_Date"] = pd.to_datetime(display_df["Join_Date"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S %Z").fillna("")
