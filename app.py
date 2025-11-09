@@ -20,45 +20,47 @@ USER_CREDENTIALS = {
 # HELPER FUNCTIONS
 # -----------------------------
 def validate_phone(phone: str) -> bool:
-    """Ensure phone has 10+ digits and is numeric."""
     return phone.isdigit() and len(phone) >= 10
 
 def calculate_expiry_date(start_date: datetime, duration_option: str) -> datetime:
-    """Calculate expiry date accurately using DateOffset."""
-    durations = {"1 Month": 1, "3 Months": 3, "6 Months": 6, "1 Year": 12}
-    months = durations.get(duration_option, 1)
-    return start_date + DateOffset(months=months)
+    if duration_option == "1 Month":
+        return start_date + DateOffset(months=1)
+    elif duration_option == "3 Months":
+        return start_date + DateOffset(months=3)
+    elif duration_option == "6 Months":
+        return start_date + DateOffset(months=6)
+    else:
+        return start_date + DateOffset(years=1)
 
 def load_members():
-    """Load member records from Excel safely."""
     dtypes = {"Member_Name": str, "Phone_Number": str, "Duration": str}
     date_cols = ["Join_Date", "Expiry_Date"]
     if os.path.exists(EXCEL_FILE):
         try:
             df = pd.read_excel(EXCEL_FILE, dtype=dtypes, parse_dates=date_cols)
         except Exception as e:
-            st.error(f"Error loading file. Starting fresh. ({e})")
+            st.error(f"Error loading members file. Starting new. ({e})")
             df = pd.DataFrame(columns=list(dtypes.keys()) + date_cols)
     else:
         df = pd.DataFrame(columns=list(dtypes.keys()) + date_cols)
     return df
 
 def save_members(df):
-    """Save DataFrame to Excel (overwrite)."""
     df.to_excel(EXCEL_FILE, index=False)
 
 def get_expiring_members(df):
-    """Return expiring soon (≤7 days) and expired members."""
     today = datetime.now(INDIAN_TZ).date()
     df["Expiry_Date"] = pd.to_datetime(df["Expiry_Date"], errors="coerce").dt.date
 
-    expired = df[df["Expiry_Date"].notna() & (df["Expiry_Date"] < today)].copy()
-    expiring_soon = df[
-        df["Expiry_Date"].notna() &
+    expired_mask = (df["Expiry_Date"].notna()) & (df["Expiry_Date"] < today)
+    expiring_mask = (
+        (df["Expiry_Date"].notna()) &
         (df["Expiry_Date"] >= today) &
         ((df["Expiry_Date"] - today).apply(lambda x: x.days) <= 7)
-    ].copy()
+    )
 
+    expired = df[expired_mask].copy()
+    expiring_soon = df[expiring_mask].copy()
     return expiring_soon, expired
 
 # -----------------------------
@@ -98,12 +100,12 @@ def add_member(df):
 def edit_member(df):
     st.subheader("✏️ Renew / Edit Member")
     if df.empty:
-        st.info("No members found.")
+        st.info("No members to edit.")
         return df
 
     df["Display"] = (
-        df["Member_Name"] + 
-        " (Ph: " + df["Phone_Number"].astype(str) + 
+        df["Member_Name"] +
+        " (Ph: " + df["Phone_Number"].astype(str) +
         " | Exp: " + pd.to_datetime(df["Expiry_Date"]).dt.strftime("%Y-%m-%d") + ")"
     )
 
@@ -116,28 +118,29 @@ def edit_member(df):
 
     new_name = st.text_input("Edit Name", value=row["Member_Name"], key="edit_name")
     new_phone = st.text_input("Edit Phone", value=row["Phone_Number"], key="edit_phone")
-    duration_options = ["1 Month", "3 Months", "6 Months", "1 Year"]
-    new_duration = st.selectbox("Renew Duration", duration_options,
-                                index=duration_options.index(row["Duration"]), key="edit_duration")
+
+    current_duration_index = ["1 Month", "3 Months", "6 Months", "1 Year"].index(row["Duration"])
+    new_duration = st.selectbox("Renew Duration", ["1 Month", "3 Months", "6 Months", "1 Year"],
+                                 index=current_duration_index, key="edit_duration")
 
     if st.button("Update / Renew", key="submit_edit"):
         if not new_name or not new_phone:
             st.warning("All fields required.")
             return df
         if not validate_phone(new_phone):
-            st.warning("Phone number must be numeric & 10+ digits.")
+            st.warning("Phone number must be at least 10 digits and numeric.")
             return df
-
-        now = datetime.now(INDIAN_TZ)
-        new_expiry = calculate_expiry_date(now, new_duration)
 
         df.at[idx, "Member_Name"] = new_name
         df.at[idx, "Phone_Number"] = new_phone
         df.at[idx, "Duration"] = new_duration
-        df.at[idx, "Expiry_Date"] = new_expiry.date()
+
+        now = datetime.now(INDIAN_TZ)
+        expiry_date = calculate_expiry_date(now, new_duration)
+        df.at[idx, "Expiry_Date"] = expiry_date.date()
 
         save_members(df)
-        st.success(f"✅ {new_name}'s membership renewed till {new_expiry.date()}")
+        st.success(f"✅ {new_name}'s membership renewed till {expiry_date.date()}")
 
     df.drop(columns=["Display"], inplace=True, errors="ignore")
     return df
@@ -149,7 +152,6 @@ def main():
     st.set_page_config(page_title="Gym Management", layout="wide")
     st.title("🏋️ Gym Membership Management System")
 
-    # --- LOGIN ---
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
         st.session_state.role = None
@@ -165,34 +167,28 @@ def main():
                 st.session_state.role = user["role"]
                 st.rerun()
             else:
-                st.error("❌ Invalid credentials.")
+                st.error("❌ Invalid credentials. Please check username or password.")
         return
 
-    st.sidebar.success(f"👤 Logged in as: **{st.session_state.role}**")
+    st.sidebar.success(f"👤 Logged in as: {st.session_state.role}")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.rerun()
 
-    # --- LOAD DATA & REMINDERS ---
     members_df = load_members()
     expiring_soon, expired = get_expiring_members(members_df)
 
     with st.container(border=True):
         st.markdown("### 🔔 Membership Reminders")
-
         if not expired.empty:
-            st.error("🚨 EXPIRED MEMBERS")
-            st.dataframe(expired[["Member_Name", "Phone_Number", "Expiry_Date"]]
-                         .sort_values("Expiry_Date"), use_container_width=True, hide_index=True)
-
+            st.error("🚨 **Expired Members**")
+            st.dataframe(expired[["Member_Name", "Phone_Number", "Expiry_Date"]].sort_values("Expiry_Date"), hide_index=True)
         if not expiring_soon.empty:
-            st.warning("⚠️ EXPIRING WITHIN 7 DAYS")
-            st.dataframe(expiring_soon[["Member_Name", "Phone_Number", "Expiry_Date"]]
-                         .sort_values("Expiry_Date"), use_container_width=True, hide_index=True)
+            st.warning("⚠️ **Expiring Within 7 Days**")
+            st.dataframe(expiring_soon[["Member_Name", "Phone_Number", "Expiry_Date"]].sort_values("Expiry_Date"), hide_index=True)
 
     st.markdown("---")
 
-    # --- ADD / EDIT ---
     col1, col2 = st.columns(2)
     with col1:
         members_df = add_member(members_df)
@@ -200,11 +196,10 @@ def main():
         if st.session_state.role == "Owner":
             members_df = edit_member(members_df)
         else:
-            st.info("Only **Owner** can renew or edit.")
+            st.info("Edit/Renewal available only to **Owner**.")
 
-    # --- FULL LIST ---
     st.markdown("---")
-    st.subheader(f"📋 Members (Active: {len(members_df) - len(expired)} / Total: {len(members_df)})")
+    st.subheader(f"📋 Member List (Active: {len(members_df) - len(expired)} / Total: {len(members_df)})")
 
     display_df = members_df.copy()
     if "Join_Date" in display_df.columns:
