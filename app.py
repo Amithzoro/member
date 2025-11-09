@@ -80,7 +80,7 @@ def add_member(df):
     phone = st.text_input("Phone Number", key="add_phone")
     duration = st.selectbox("Membership Duration", ["1 Month", "3 Months", "6 Months", "1 Year"], key="add_duration")
     
-    # --- NEW: Date Input for Join Date ---
+    # Date Input for Join Date
     join_date_input = st.date_input("Join Date", value=datetime.now(INDIAN_TZ).date(), key="add_join_date")
 
     if st.button("Add Member", key="submit_add"):
@@ -91,11 +91,13 @@ def add_member(df):
             st.warning("Phone number must be at least 10 digits and numeric.")
             return df
 
-        # Convert date input to timezone-aware datetime for calculation
+        # Convert date input to timezone-aware datetime
         join_datetime = INDIAN_TZ.localize(datetime.combine(join_date_input, time(0,0,0))) 
         
-        join_date_str = join_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        expiry_date = calculate_expiry_date(join_datetime, duration) # Calculate expiry based on the chosen join date
+        # Format the Join Date to explicitly include the Timezone (e.g., IST)
+        join_date_str = join_datetime.strftime("%Y-%m-%d %H:%M:%S %Z") 
+
+        expiry_date = calculate_expiry_date(join_datetime, duration) 
 
         new_entry = pd.DataFrame([{
             "Member_Name": name,
@@ -137,7 +139,7 @@ def edit_member(df):
     new_duration = st.selectbox("Renew Duration", ["1 Month", "3 Months", "6 Months", "1 Year"],
                                  index=current_duration_index, key="edit_duration")
 
-    # --- NEW: Date Input for Renewal Date ---
+    # Date Input for Renewal Date
     renewal_date_input = st.date_input("Renewal/Update Date (Membership starts from this date)", 
                                        value=datetime.now(INDIAN_TZ).date(), 
                                        key="edit_renewal_date")
@@ -150,7 +152,7 @@ def edit_member(df):
             st.warning("Phone number must be at least 10 digits and numeric.")
             return df
 
-        # Convert date input to timezone-aware datetime for calculation
+        # Convert date input to timezone-aware datetime
         renewal_datetime = INDIAN_TZ.localize(datetime.combine(renewal_date_input, time(0,0,0)))
         
         # Calculate new expiry date based on the chosen renewal date
@@ -243,8 +245,9 @@ def main():
     # Prepare DataFrame for clean display formatting
     display_df = members_df.copy()
     
+    # Format dates and fill any missing values with empty string
     if "Join_Date" in display_df.columns:
-        display_df["Join_Date"] = pd.to_datetime(display_df["Join_Date"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M").fillna("")
+        display_df["Join_Date"] = pd.to_datetime(display_df["Join_Date"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M %Z").fillna("")
     if "Expiry_Date" in display_df.columns:
         display_df["Expiry_Date"] = pd.to_datetime(display_df["Expiry_Date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
 
